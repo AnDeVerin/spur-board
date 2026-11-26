@@ -2484,6 +2484,12 @@ describe('task.get why', () => {
     const why = await ctx.why();
 
     expect(why.holds).toContain('pr_snapshot_missing');
+    expect(Object.keys(why)[0]).toBe('waitsFor');
+    expect(why.waitsFor).toEqual({
+      kind: 'board',
+      text: 'the first poll of the linked PR',
+      actor: null,
+    });
     expect(why.gates).toEqual([]);
     expect(why.checksWaivedBy).toBeNull();
     expect(await ctx.tables()).toEqual(before);

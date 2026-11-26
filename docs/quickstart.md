@@ -263,14 +263,14 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 ### 9. Merge the pull request
 
 The agents never merge: you do. The task stays in `review` after the reviewer submits, so first
-ask `example-operator` whether the Review gate is met:
+ask `example-operator` what the task waits for:
 
 ```text
-Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
+Run board task example-org/example-repo#<N> --why and tell me what the task waits for.
 ```
 
-When it reports the `review_on_head` gate met on the current head, open the pull request in the
-browser and press the merge button
+When it reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review gate is
+met on the current head: open the pull request in the browser and press the merge button
 ([Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates):
 
 ```sh
@@ -301,8 +301,8 @@ Run board status and tell me the column and turn reason of example-org/example-r
 wrapping up, the task also has an open turn with the reason `done: wrap up`; once the worker
 finishes, the task stays in `done` with no open turn.
 
-**If it fails:** a task that stays in Review after the merge waits for the closed issue: check
-that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
+**If it fails:** a task that stays in Review after the merge reads `waits for: ticket to close`:
+check that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
 
 ## Add more columns
 

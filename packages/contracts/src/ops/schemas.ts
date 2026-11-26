@@ -11,6 +11,7 @@ import {
   MEMBERSHIPS,
   TASK_HOLDS,
   VIAS,
+  WAITS_FOR_KINDS,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -175,6 +176,26 @@ const gateConditionSchema = z
 /** Why a task is where it is, from the dispatcher's point of view. */
 export const taskWhySchema = z
   .strictObject({
+    waitsFor: z
+      .strictObject({
+        kind: z
+          .enum(WAITS_FOR_KINDS)
+          .describe(
+            'What the task waits for: an open turn, a merge, a human approval, the ticket, CI checks, GitHub, Spur, the board, an answer to a block, work to start, a failing gate, nothing (done) or the project config.',
+          ),
+        text: z
+          .string()
+          .describe(
+            'The wait in one line, e.g. merge of acme/web#42 (a human); ends with the actor in parentheses when one acts next.',
+          ),
+        actor: z
+          .enum([...ADDRESSEE_ROLES, 'human'])
+          .nullable()
+          .describe(
+            'Who acts next: a role, human for a person on GitHub, or null when the board, GitHub or Spur settles it.',
+          ),
+      })
+      .describe('What the task waits for and who acts next; the first fact to read.'),
     column: z
       .enum(COLUMN_IDS)
       .describe('Column the dispatcher works from: the shadow column in shadow mode.'),
@@ -233,11 +254,17 @@ export const taskWhySchema = z
             conditions: z
               .array(gateConditionSchema)
               .describe("The column's exit conditions, empty for a column without any."),
+            waitsFor: z
+              .string()
+              .optional()
+              .describe(
+                'What passing this gate waits for, when its conditions do not say it: the merge and ticket close of an enabled Done gate, or work to start on the To Do group column the task sits in; absent otherwise.',
+              ),
           })
           .describe('The gate of one column.'),
       )
       .describe(
-        'The gate of every column, To Do to Done; empty when the pull request facts are missing.',
+        'The gate of every column, To Do to Done; empty when the pull request facts are missing. A terminal leaves out disabled columns unless --all; JSON lists every column.',
       ),
     checksWaivedBy: z
       .literal('reposWithoutCi')

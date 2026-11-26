@@ -49,6 +49,38 @@ export const schemaGetOutputSchema = z
                   .literal('--key')
                   .nullable()
                   .describe('Idempotency key flag; null for a query.'),
+                view: z
+                  .strictObject({
+                    when: z
+                      .string()
+                      .describe('Boolean input field that turns the terminal view on.'),
+                    lead: z
+                      .strictObject({
+                        label: z.string().describe('Label of the first output line.'),
+                        path: z
+                          .array(z.string())
+                          .min(1)
+                          .describe('Output path of the text the first line shows.'),
+                      })
+                      .describe('The line printed before the result.'),
+                    hide: z
+                      .strictObject({
+                        path: z
+                          .array(z.string())
+                          .min(1)
+                          .describe('Output path of the array whose entries may be left out.'),
+                        field: z
+                          .string()
+                          .describe('Boolean entry field; entries where it is false are left out.'),
+                        flag: z.string().describe('CLI flag that keeps every entry.'),
+                        description: z.string().describe('Help text of the flag.'),
+                      })
+                      .describe('Entries left out of the terminal view.'),
+                  })
+                  .optional()
+                  .describe(
+                    'How a terminal shows the output; absent for the plain view. JSON is never shaped.',
+                  ),
               })
               .describe('CLI binding.'),
             mcp: z

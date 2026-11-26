@@ -55,6 +55,22 @@ export const cliModeSchema = z
   .describe('A CLI flag that picks one input mode.');
 export type CliMode = z.output<typeof cliModeSchema>;
 
+/**
+ * How the CLI shapes an operation's terminal output when the boolean input field `when` is true:
+ * `lead` prints `<label>: <text at path>` first, and `hide` leaves out the entries of the array at
+ * its path whose boolean `field` is false, unless `flag` is passed. JSON output is never shaped.
+ */
+export interface CliView {
+  when: string;
+  lead: { label: string; path: readonly [string, ...string[]] };
+  hide: {
+    path: readonly [string, ...string[]];
+    field: string;
+    flag: `--${string}`;
+    description: string;
+  };
+}
+
 export const OPERATION_KINDS = ['query', 'mutation'] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
 
@@ -100,6 +116,8 @@ export interface Operation<
     modes: readonly CliMode[] | null;
     defaultMode?: string;
     key: '--key' | null;
+    /** Terminal output shaping; absent for plain human output. */
+    view?: CliView;
   };
   mcp: {
     name: string;
@@ -150,6 +168,7 @@ export function defineOperation<
     args: readonly string[];
     modes?: readonly [CliMode, ...CliMode[]];
     defaultMode?: string;
+    view?: CliView;
   };
   mcp: { whenToUse: string; whenNotToUse: string; destructive?: boolean };
   slack: SlackBinding | null;
@@ -166,6 +185,8 @@ export function defineOperation<
   }
   if (!mutation && spec.explicitKeyModes?.length)
     throw new Error('Only mutations require explicit keys.');
+  if (spec.cli.view !== undefined)
+    checkView(spec.id, spec.input, spec.cli.modes ?? [], spec.cli.view);
   const order = Object.keys(ERRORS);
   const errors = [
     ...new Set([...COMMON_ERRORS, ...(mutation ? MUTATION_ERRORS : []), ...spec.errors]),
@@ -181,6 +202,7 @@ export function defineOperation<
       modes: spec.cli.modes ?? null,
       ...(spec.cli.defaultMode === undefined ? {} : { defaultMode: spec.cli.defaultMode }),
       key: mutation ? '--key' : null,
+      ...(spec.cli.view === undefined ? {} : { view: spec.cli.view }),
     },
     mcp: {
       name: spec.id.replace('.', '_'),
@@ -189,4 +211,37 @@ export function defineOperation<
       destructive: mutation ? (spec.mcp.destructive ?? true) : false,
     },
   };
+}
+
+/** The CLI flag of an input field: `--` and the field name in kebab case. */
+const fieldFlag = (field: string) =>
+  `--${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+
+/**
+ * A CLI view reads a boolean input field and binds a flag no input field, mode, `--key` or
+ * `--json` already takes.
+ */
+function checkView(
+  id: string,
+  input: OperationInput,
+  modes: readonly CliMode[],
+  view: CliView,
+): void {
+  const shapes = (
+    input instanceof z.ZodDiscriminatedUnion ? input.options : [input]
+  ) as readonly z.ZodObject[];
+  const fields = shapes.flatMap((shape) => Object.entries(shape.shape));
+  const when = fields.filter(([name]) => name === view.when).map(([, schema]) => schema);
+  const boolean = (schema: z.ZodType) =>
+    (schema instanceof z.ZodOptional ? schema.unwrap() : schema) instanceof z.ZodBoolean;
+  if (when.length === 0 || !when.every((schema) => boolean(schema as z.ZodType)))
+    throw new Error(`CLI view of ${id} needs a boolean input field ${view.when}.`);
+  const taken = new Set([
+    ...fields.map(([name]) => fieldFlag(name)),
+    ...modes.map((mode) => mode.flag),
+    '--key',
+    '--json',
+  ]);
+  if (taken.has(view.hide.flag))
+    throw new Error(`CLI view flag ${view.hide.flag} of ${id} is already taken.`);
 }

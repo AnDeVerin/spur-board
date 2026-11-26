@@ -102,9 +102,9 @@ type Options = {
   rtmThreads?: boolean;
   /**
    * `omitted`: the project has no `columns` key, so it gets the default board. `todo-group`:
-   * Triage and Ready for Dev follow To Do.
+   * Triage and Ready for Dev follow To Do. `minimal`: only To Do, Dev, Review and Done.
    */
-  columns?: 'omitted' | 'todo-group';
+  columns?: 'omitted' | 'todo-group' | 'minimal';
   /** The project's `checksGate`; unset by default. */
   checksGate?: CheckGateColumn;
   /** External Review's `approvalRule`; unset by default. */
@@ -242,7 +242,7 @@ function columnsOf(options: Options) {
       ...(options.courseCheck === undefined ? {} : { courseCheck: options.courseCheck }),
       ...(options.courseCheckTo === undefined ? {} : { courseCheckTo: options.courseCheckTo }),
     },
-    { id: 'product-review', orchestrator: 'coord' },
+    ...(options.columns === 'minimal' ? [] : [{ id: 'product-review', orchestrator: 'coord' }]),
     ...(options.externalReview === true
       ? [
           {
@@ -267,11 +267,17 @@ function columnsOf(options: Options) {
         ]
       : []),
     ...(options.qa === true ? [{ id: 'qa', orchestrator: options.qaOrchestrator ?? 'coord' }] : []),
-    {
-      id: 'ready-to-merge',
-      orchestrator: options.qa === true ? 'coord' : 'operator',
-      ...(options.rtmThreads === undefined ? {} : { requireResolvedThreads: options.rtmThreads }),
-    },
+    ...(options.columns === 'minimal'
+      ? []
+      : [
+          {
+            id: 'ready-to-merge',
+            orchestrator: options.qa === true ? 'coord' : 'operator',
+            ...(options.rtmThreads === undefined
+              ? {}
+              : { requireResolvedThreads: options.rtmThreads }),
+          },
+        ]),
     {
       id: 'done',
       ...(options.doneOrchestrator === undefined ? {} : { orchestrator: options.doneOrchestrator }),
@@ -6558,6 +6564,11 @@ describe('task.move', () => {
     ctx.restart({ projectRemoved: true });
 
     expect(await ctx.why()).toMatchObject({
+      waitsFor: {
+        kind: 'config',
+        text: 'the project in config.yaml (operator)',
+        actor: 'operator',
+      },
       column: 'review',
       dispatcher: null,
       holds: [],
@@ -9911,5 +9922,98 @@ describe('External Review quiet item', () => {
     expect(rest).toEqual([]);
     expect(kept?.id).toBe(item?.id);
     expect(kept?.cleared_at).toBeNull();
+  });
+});
+
+describe('task.get why waitsFor', () => {
+  const minimal = { columns: 'minimal' } as const;
+  /** `why.waitsFor`, checked to be the first key of `why`. */
+  async function waitsFor(ctx: Board) {
+    const why = await ctx.why();
+    expect(Object.keys(why)[0]).toBe('waitsFor');
+    return why;
+  }
+  /** The reviewer passed Review on head A of the minimal board. */
+  async function reviewed() {
+    const ctx = await inReview(minimal);
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2');
+    await ctx.tick();
+    return ctx;
+  }
+
+  it('names the open Dev turn and its worker', async () => {
+    const ctx = await inDev(minimal);
+    expect((await waitsFor(ctx)).waitsFor).toEqual({
+      kind: 'turn',
+      text: 'Dev turn T1 (worker)',
+      actor: 'worker',
+    });
+  });
+
+  it('names the open Review turn and its orchestrator', async () => {
+    const ctx = await inReview(minimal);
+    expect((await waitsFor(ctx)).waitsFor).toEqual({
+      kind: 'turn',
+      text: 'Review turn T2 (orchestrator:review)',
+      actor: 'orchestrator:review',
+    });
+  });
+
+  it('names CI on the head while checks run', async () => {
+    const ctx = await reviewed();
+    await ctx.pr({ requiredChecks: [{ name: 'ci', state: 'pending', completedAt: null }] });
+    await ctx.tick();
+    expect((await waitsFor(ctx)).waitsFor).toEqual({
+      kind: 'checks',
+      text: 'CI on aaaaaaaa',
+      actor: null,
+    });
+  });
+
+  it('names the merge after Review on the minimal board, and the Done gate says it too', async () => {
+    const ctx = await reviewed();
+    const why = await waitsFor(ctx);
+    expect(why.waitsFor).toEqual({
+      kind: 'merge',
+      text: 'merge of o/r#7 (a human)',
+      actor: 'human',
+    });
+    expect(why.gates.find((gate) => gate.column === 'done')?.waitsFor).toBe(
+      'merge of o/r#7, then the ticket to close',
+    );
+  });
+
+  it('names the ticket close after the merge while the ticket is untouched', async () => {
+    const ctx = await reviewed();
+    await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
+    await ctx.tick();
+    expect((await waitsFor(ctx)).waitsFor).toEqual({
+      kind: 'ticket',
+      text: 'ticket to close',
+      actor: null,
+    });
+  });
+
+  it('names work to start with no PR and no worker, on the To Do gate too', async () => {
+    const ctx = await started(minimal, 'none');
+    const why = await waitsFor(ctx);
+    expect(why.waitsFor).toEqual({
+      kind: 'work',
+      text: 'work to start: an open PR or a live worker',
+      actor: null,
+    });
+    expect(why.gates.find((gate) => gate.column === 'todo')?.waitsFor).toBe(
+      'work to start: an open PR or a live worker',
+    );
+  });
+
+  it('names the Dev turn of a live worker with no PR', async () => {
+    const ctx = await started(minimal);
+    expect((await waitsFor(ctx)).waitsFor).toEqual({
+      kind: 'turn',
+      text: 'Dev turn T1 (worker)',
+      actor: 'worker',
+    });
   });
 });

@@ -1,5 +1,5 @@
 {
-  "version": "2459cc1a6c7b30e13fa7efac6d076222d68e19ae62220e1b9aff10a265560d27",
+  "version": "9d2b5a536bfca1c3092b6d50916e036e39fe358dcce5bcc486c4828945adc691",
   "grants": [
     "operator",
     "project-agent",
@@ -4250,11 +4250,26 @@
         "stopping",
         "github_unavailable"
       ],
-      "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
+      "cli": {
+        "command": "task",
+        "args": ["task"],
+        "modes": null,
+        "key": null,
+        "view": {
+          "when": "why",
+          "lead": { "label": "waits for", "path": ["why", "waitsFor", "text"] },
+          "hide": {
+            "path": ["why", "gates"],
+            "field": "enabled",
+            "flag": "--all",
+            "description": "With --why on a terminal, also list the gates of disabled columns; JSON always lists every column."
+          }
+        }
+      },
       "mcp": {
         "name": "task_get",
         "key": null,
-        "whenToUse": "Inspect a task; detail adds closed turns.",
+        "whenToUse": "Inspect a task; why starts with what it waits for, detail adds closed turns.",
         "whenNotToUse": "Use task_history for past events.",
         "destructive": false
       },
@@ -4374,6 +4389,11 @@
             "blocks": [],
             "comments": [],
             "why": {
+              "waitsFor": {
+                "kind": "turn",
+                "text": "Review turn T4 (orchestrator:review)",
+                "actor": "orchestrator:review"
+              },
               "column": "review",
               "dispatcher": "on",
               "holds": [],
@@ -4477,7 +4497,8 @@
                   "enabled": true,
                   "ok": true,
                   "blockedIn": "review",
-                  "conditions": []
+                  "conditions": [],
+                  "waitsFor": "merge of example/web#9, then the ticket to close"
                 }
               ],
               "checksWaivedBy": null,
@@ -4562,7 +4583,7 @@
             "type": "boolean"
           },
           "why": {
-            "description": "Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.",
+            "description": "Explain why the task is in its column: what it waits for, gates, holds, the open turn and the last moves; absent means no explanation.",
             "type": "boolean"
           }
         },
@@ -5753,6 +5774,62 @@
             "description": "Present only with why.",
             "type": "object",
             "properties": {
+              "waitsFor": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "turn",
+                      "merge",
+                      "approval",
+                      "ticket",
+                      "checks",
+                      "github",
+                      "spur",
+                      "board",
+                      "answer",
+                      "work",
+                      "gate",
+                      "done",
+                      "config"
+                    ],
+                    "description": "What the task waits for: an open turn, a merge, a human approval, the ticket, CI checks, GitHub, Spur, the board, an answer to a block, work to start, a failing gate, nothing (done) or the project config."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "The wait in one line, e.g. merge of acme/web#42 (a human); ends with the actor in parentheses when one acts next."
+                  },
+                  "actor": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "operator",
+                          "curator",
+                          "orchestrator:todo",
+                          "orchestrator:triage",
+                          "orchestrator:ready-for-dev",
+                          "orchestrator:dev",
+                          "orchestrator:review",
+                          "orchestrator:product-review",
+                          "orchestrator:external-review",
+                          "orchestrator:qa",
+                          "orchestrator:ready-to-merge",
+                          "orchestrator:done",
+                          "worker",
+                          "human"
+                        ]
+                      },
+                      { "type": "null" }
+                    ],
+                    "description": "Who acts next: a role, human for a person on GitHub, or null when the board, GitHub or Spur settles it."
+                  }
+                },
+                "required": ["kind", "text", "actor"],
+                "additionalProperties": false,
+                "description": "What the task waits for and who acts next; the first fact to read."
+              },
               "column": {
                 "type": "string",
                 "enum": [
@@ -5963,13 +6040,17 @@
                         "description": "One exit condition of a column and its state."
                       },
                       "description": "The column's exit conditions, empty for a column without any."
+                    },
+                    "waitsFor": {
+                      "description": "What passing this gate waits for, when its conditions do not say it: the merge and ticket close of an enabled Done gate, or work to start on the To Do group column the task sits in; absent otherwise.",
+                      "type": "string"
                     }
                   },
                   "required": ["column", "enabled", "ok", "blockedIn", "conditions"],
                   "additionalProperties": false,
                   "description": "The gate of one column."
                 },
-                "description": "The gate of every column, To Do to Done; empty when the pull request facts are missing."
+                "description": "The gate of every column, To Do to Done; empty when the pull request facts are missing. A terminal leaves out disabled columns unless --all; JSON lists every column."
               },
               "checksWaivedBy": {
                 "anyOf": [{ "type": "string", "const": "reposWithoutCi" }, { "type": "null" }],
@@ -6453,6 +6534,7 @@
               }
             },
             "required": [
+              "waitsFor",
               "column",
               "dispatcher",
               "holds",
@@ -6867,6 +6949,62 @@
                     "key": {
                       "anyOf": [{ "type": "string", "const": "--key" }, { "type": "null" }],
                       "description": "Idempotency key flag; null for a query."
+                    },
+                    "view": {
+                      "description": "How a terminal shows the output; absent for the plain view. JSON is never shaped.",
+                      "type": "object",
+                      "properties": {
+                        "when": {
+                          "type": "string",
+                          "description": "Boolean input field that turns the terminal view on."
+                        },
+                        "lead": {
+                          "type": "object",
+                          "properties": {
+                            "label": {
+                              "type": "string",
+                              "description": "Label of the first output line."
+                            },
+                            "path": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": { "type": "string" },
+                              "description": "Output path of the text the first line shows."
+                            }
+                          },
+                          "required": ["label", "path"],
+                          "additionalProperties": false,
+                          "description": "The line printed before the result."
+                        },
+                        "hide": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": { "type": "string" },
+                              "description": "Output path of the array whose entries may be left out."
+                            },
+                            "field": {
+                              "type": "string",
+                              "description": "Boolean entry field; entries where it is false are left out."
+                            },
+                            "flag": {
+                              "type": "string",
+                              "description": "CLI flag that keeps every entry."
+                            },
+                            "description": {
+                              "type": "string",
+                              "description": "Help text of the flag."
+                            }
+                          },
+                          "required": ["path", "field", "flag", "description"],
+                          "additionalProperties": false,
+                          "description": "Entries left out of the terminal view."
+                        }
+                      },
+                      "required": ["when", "lead", "hide"],
+                      "additionalProperties": false
                     }
                   },
                   "required": ["command", "args", "modes", "key"],

@@ -1359,4 +1359,96 @@ describe('catalog commands', () => {
     };
     expect(json.operations[0]?.inputSchema[hostileKey]).toBe('value\u009b31m');
   });
+
+  describe('task --why view', () => {
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    if (!task) throw new Error('Missing task operation.');
+    const example = task.examples[1]?.output;
+    if (!example) throw new Error('Missing the why example.');
+    const disabled = [
+      'triage',
+      'ready-for-dev',
+      'product-review',
+      'external-review',
+      'qa',
+      'ready-to-merge',
+    ];
+    const columnLines = (stdout: string) =>
+      [...stdout.matchAll(/^\s*(?:- )?column: (\S+)$/gm)].map((match) => match[1]);
+    /** Runs `board <args>` against a server answering `value`; counts its calls. */
+    async function run(args: string[], isTTY: boolean, value: unknown = example) {
+      let calls = 0;
+      const url = await fakeServer(() => {
+        calls += 1;
+        return value;
+      });
+      const output = capture(isTTY);
+      const code = await runCli(args, { env: env(url), io: output.io });
+      return { code, calls, stdout: output.stdout, stderr: output.stderr };
+    }
+
+    it('leads with what the task waits for and leaves out disabled columns on a terminal', async () => {
+      const { code, stdout } = await run(['task', 'PROJ-123', '--why'], true);
+      expect(code).toBe(0);
+      expect(stdout.startsWith('waits for: Review turn T4 (orchestrator:review)\n')).toBe(true);
+      expect(columnLines(stdout)).toContain('done');
+      for (const column of disabled) expect(columnLines(stdout)).not.toContain(column);
+    });
+
+    it('lists every column with --all', async () => {
+      const { code, stdout } = await run(['task', 'PROJ-123', '--why', '--all'], true);
+      expect(code).toBe(0);
+      expect(stdout.startsWith('waits for: ')).toBe(true);
+      for (const column of disabled) expect(columnLines(stdout)).toContain(column);
+    });
+
+    it('keeps every column in JSON, with or without --all', async () => {
+      for (const args of [
+        ['task', 'PROJ-123', '--why'],
+        ['task', 'PROJ-123', '--why', '--json', '--all'],
+      ]) {
+        const { code, stdout } = await run(args, args.includes('--json'));
+        expect(code).toBe(0);
+        expect(JSON.parse(stdout)).toEqual(example);
+      }
+    });
+
+    it('refuses --all without --why before calling the daemon', async () => {
+      const { code, calls, stderr } = await run(['task', 'PROJ-123', '--all'], true);
+      expect(code).toBe(2);
+      expect(calls).toBe(0);
+      expect(stderr).toContain('--all needs --why.');
+    });
+
+    it('prints the plain view without --why', async () => {
+      const { code, stdout } = await run(['task', 'PROJ-123'], true, {
+        ...example,
+        why: undefined,
+      });
+      expect(code).toBe(0);
+      expect(stdout.startsWith('waits for:')).toBe(false);
+      expect(stdout.startsWith('task:')).toBe(true);
+      const full = await run(['task', 'PROJ-123'], true);
+      expect(columnLines(full.stdout)).toContain('triage');
+    });
+
+    it('refuses an older daemon why without waitsFor in the strict output parse', async () => {
+      const { waitsFor: _waitsFor, ...why } = example.why ?? {};
+      const { code, stdout } = await run(['task', 'PROJ-123', '--why'], true, { ...example, why });
+      expect(code).toBe(5);
+      expect(stdout).toBe('');
+    });
+
+    it('describes a board whose enabled columns are those of examples/minimal', () => {
+      const config = readFileSync(
+        fileURLToPath(new URL('../../../examples/minimal/config.yaml', import.meta.url)),
+        'utf8',
+      );
+      const minimal = [...config.matchAll(/^ {6}- id: (\S+)$/gm)].map((match) => match[1]);
+      expect(minimal).toEqual(['todo', 'dev', 'review', 'done']);
+      expect(example.why?.gates.filter((gate) => gate.enabled).map((gate) => gate.column)).toEqual(
+        minimal,
+      );
+    });
+  });
 });

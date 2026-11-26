@@ -12,7 +12,13 @@ import {
 import { hostname, homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Command, CommanderError, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { ERRORS, OPERATIONS, requestHashOf, roleCanUseOperation } from '@spur-board/contracts';
+import {
+  ERRORS,
+  OPERATIONS,
+  requestHashOf,
+  roleCanUseOperation,
+  type CliView,
+} from '@spur-board/contracts';
 import { z } from 'zod';
 import { fetchTokenStatus, requestOperation, requestTokenEnrollment } from './client.ts';
 import {
@@ -224,6 +230,48 @@ function formatHuman(value: unknown, indent = 0): string {
   return `${prefix}${escapeTerminalControls(String(value))}`;
 }
 
+/** The value at `path` of a JSON result, or undefined when the path does not reach one. */
+function valueAt(value: unknown, path: readonly string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
+ * The result without the entries of the array at `path` whose `field` is false, keys in place.
+ * A path that does not reach an array leaves the result as it is.
+ */
+function withoutEntries(value: unknown, path: readonly string[], field: string): unknown {
+  const [key, ...rest] = path;
+  if (key === undefined)
+    return Array.isArray(value)
+      ? value.filter(
+          (entry: unknown) =>
+            !(
+              entry &&
+              typeof entry === 'object' &&
+              (entry as Record<string, unknown>)[field] === false
+            ),
+        )
+      : value;
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || !(key in value))
+    return value;
+  const object = value as Record<string, unknown>;
+  return { ...object, [key]: withoutEntries(object[key], rest, field) };
+}
+
+/** Terminal output shaped by a catalog `cli.view`: the lead line, then the result. */
+function formatView(result: unknown, view: CliView, all: boolean): string {
+  const lead = valueAt(result, view.lead.path);
+  const body = formatHuman(all ? result : withoutEntries(result, view.hide.path, view.hide.field));
+  return typeof lead === 'string'
+    ? `${escapeTerminalControls(view.lead.label)}: ${escapeTerminalControls(lead)}\n${body}`
+    : body;
+}
+
 function commandFor(root: CommandUnknownOpts, path: string): CommandUnknownOpts {
   let parent: CommandUnknownOpts = root;
   for (const segment of path.split(' ')) {
@@ -282,6 +330,8 @@ function registerOptions(command: CommandUnknownOpts, op: CatalogOperation): voi
       command.option(`${mode.flag} ${value}`, description);
     }
   }
+  if (op.cli.view !== undefined)
+    command.option(op.cli.view.hide.flag, op.cli.view.hide.description);
   if (op.kind === 'mutation') command.option('--key <key>', 'Idempotency key for this action.');
   command.option('--json', 'Print JSON output or a JSON error.');
 }
@@ -510,6 +560,16 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const invoked = parts.at(-1) as CommandUnknownOpts;
       const json = Boolean(invoked.opts()['json'] || program.opts()['json']);
       const input = buildInput(op, parts.slice(0, -1), invoked.opts());
+      const view = op.cli.view;
+      const viewOn = view !== undefined && (input as Record<string, unknown>)[view.when] === true;
+      const all = view !== undefined && invoked.opts()[optionField(view.hide.flag)] === true;
+      if (view !== undefined && all && !viewOn)
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          `${view.hide.flag} needs ${optionName(view.when)}.`,
+        );
       const keyOption = invoked.opts()['key'];
       if (
         op.explicitKeyModes?.includes((input as Record<string, string>)['mode'] ?? '') &&
@@ -580,7 +640,15 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       try {
         if ('error' in outcome) throw outcome.error;
         const result = outcome.value;
-        io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
+        io.stdout(
+          `${
+            json || !io.isTTY
+              ? JSON.stringify(result)
+              : view !== undefined && viewOn
+                ? formatView(result, view, all)
+                : formatHuman(result)
+          }\n`,
+        );
       } catch (error) {
         if (error instanceof CliError) {
           io.stderr(`${renderCliError(error, json, key)}\n`);

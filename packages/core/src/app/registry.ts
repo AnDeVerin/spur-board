@@ -54,6 +54,24 @@ function ticketBrowseBase(tracker: Config['projects'][number]['tracker']): strin
   return url.href;
 }
 
+/** An operation's CLI binding as `schema.get` returns it, with mutable copies of its lists. */
+function catalogCli({ view, ...cli }: (typeof OPERATIONS)[number]['cli']) {
+  return {
+    ...cli,
+    args: [...cli.args],
+    modes: cli.modes?.map((mode) => ({ ...mode })) ?? null,
+    ...(view === undefined
+      ? {}
+      : {
+          view: {
+            when: view.when,
+            lead: { label: view.lead.label, path: [...view.lead.path] },
+            hide: { ...view.hide, path: [...view.hide.path] },
+          },
+        }),
+  };
+}
+
 /** Concrete handlers shared by the daemon's HTTP and inbound transports. */
 export function createOperationRegistry(deps: {
   config: Config;
@@ -133,11 +151,7 @@ export function createOperationRegistry(deps: {
             ...(operation.explicitKeyModes === undefined
               ? {}
               : { explicitKeyModes: [...operation.explicitKeyModes] }),
-            cli: {
-              ...operation.cli,
-              args: [...operation.cli.args],
-              modes: operation.cli.modes?.map((mode) => ({ ...mode })) ?? null,
-            },
+            cli: catalogCli(operation.cli),
             mcp: { ...operation.mcp },
             inputSchema: operation.input,
             outputSchema: operation.output,

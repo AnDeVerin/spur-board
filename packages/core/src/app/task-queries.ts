@@ -4,11 +4,13 @@ import {
   PR_STATES,
   TASK_HOLDS,
   type ActorId,
+  type AddresseeRole,
   type Config,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
+import { gateWaitsFor, waitsFor } from '../domain/waits-for.ts';
 import type { CommentTable, TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import {
@@ -154,7 +156,14 @@ export function createTaskQueries(deps: {
       ...(withoutCommit === undefined ? {} : { submittedWithoutCommit: withoutCommit }),
     };
     if (project === undefined)
-      return { ...shared, dispatcher: null, holds: [], gates: [], checksWaivedBy: null };
+      return {
+        waitsFor: waitsFor({ project: null }),
+        ...shared,
+        dispatcher: null,
+        holds: [],
+        gates: [],
+        checksWaivedBy: null,
+      };
     const mode = project.dispatcher.mode;
     const read = await readInput(
       trx,
@@ -167,6 +176,7 @@ export function createTaskQueries(deps: {
     );
     if (read === null) {
       return {
+        waitsFor: waitsFor({ project, gate: null }),
         ...shared,
         dispatcher: mode,
         holds: ['pr_snapshot_missing' as const],
@@ -214,9 +224,22 @@ export function createTaskQueries(deps: {
       ...dispatchHolds(read.input),
       ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
     ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
-    const heldBy = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
+    const held = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
+    const heldBy = held.map((block) => block.id);
     const pending = read.pending?.state === 'pending' ? read.pending : undefined;
+    const pr = read.prRef;
     return {
+      waitsFor: waitsFor({
+        project: read.input.project,
+        gate,
+        column,
+        holds,
+        heldBlocks: held,
+        pendingSha: pending?.sha,
+        turn: shared.turn,
+        waiting,
+        pr,
+      }),
       ...shared,
       dispatcher: mode,
       holds,
@@ -230,27 +253,37 @@ export function createTaskQueries(deps: {
               text: `submit pending confirmation of ${pending.sha.slice(0, 7)}`,
             },
           }),
-      gates,
+      gates: gates.map((entry) => {
+        const text = gateWaitsFor(entry, { column, holds, pr, ticketDone: read.input.ticketDone });
+        return text === undefined ? entry : { ...entry, waitsFor: text };
+      }),
       checksWaivedBy,
       ...(waiting.length === 0 ? {} : { waiting }),
     };
   }
   /** The blocks of the active cycle-limit and course-check items that hold the task's turn. */
-  async function holdBlocks(trx: Trx, taskId: number): Promise<string[]> {
+  async function holdBlocks(
+    trx: Trx,
+    taskId: number,
+  ): Promise<{ id: string; addressee: AddresseeRole }[]> {
     const items = await trx
       .selectFrom('operator_item')
-      .select('block_id')
+      .innerJoin('block', 'block.id', 'operator_item.block_id')
+      .select(['operator_item.block_id', 'block.addressee_role'])
       .where((eb) =>
         eb.or([
-          eb('item_key', 'like', `${cycleKeyPrefix(taskId)}%`),
-          eb('item_key', 'like', `${courseKeyPrefix(taskId)}%`),
+          eb('operator_item.item_key', 'like', `${cycleKeyPrefix(taskId)}%`),
+          eb('operator_item.item_key', 'like', `${courseKeyPrefix(taskId)}%`),
         ]),
       )
-      .where('cleared_at', 'is', null)
-      .where('block_id', 'is not', null)
-      .orderBy('id')
+      .where('operator_item.cleared_at', 'is', null)
+      .orderBy('operator_item.id')
       .execute();
-    return items.flatMap((item) => (item.block_id === null ? [] : [`B${String(item.block_id)}`]));
+    return items.flatMap((item) =>
+      item.block_id === null
+        ? []
+        : [{ id: `B${String(item.block_id)}`, addressee: item.addressee_role }],
+    );
   }
   const get: Query<'task.get'> = {
     id: 'task.get',
