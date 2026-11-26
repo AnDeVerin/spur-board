@@ -1,8 +1,8 @@
 # Minimal example: one repository, Todo, Dev, Review, Done
 
 This example runs the Board for one public GitHub repository in one checkout, with the public
-Spur and plain Claude Code or Codex. The agents follow the `spur-board` skill; no other agent
-setup is needed. It uses no Slack and no web UI.
+Spur and Claude Code or Codex. The agents follow the `spur-board` skill. The example runs
+without Slack or the web UI.
 
 - [`config.yaml`](config.yaml) - the Board config: one `github-issues` project with the columns
   Todo, Dev, Review and Done, the dispatcher on, and three Spur projects.
@@ -13,19 +13,23 @@ setup is needed. It uses no Slack and no web UI.
 Replace `example-org/example-repo`, `example-user` and the project names with your own values in
 both files.
 
-[Quickstart](../../docs/quickstart.md) walks these steps with what success looks like after each
-one and the fix for its common failures.
+The [quickstart requirements](../../docs/quickstart.md#requirements) cover Node, GitHub CLI and
+the agent CLI. Your GitHub repository needs at least one commit on its default branch so Spur can
+create worktrees. The [quickstart](../../docs/quickstart.md) shows how to verify each step.
 
 ## Steps
 
 1. Install Spur and set it up:
 
    ```sh
-   npm install -g @shugaev/spur
+   npm install -g --prefix "$HOME/.local" @shugaev/spur
+   export PATH="$HOME/.local/bin:$PATH"
    spur init
    ```
 
-   The Board needs Spur 1.53.0 or later. This example was checked with Spur 1.62.3.
+   Add the `export` line to your shell profile. The Board needs Spur 1.53.0 or later. This example
+   was checked with Spur 1.62.3. See [Install Spur](../../docs/quickstart.md#install-spur) for what
+   `spur init` sets up and which notices to expect.
 
 2. Install the `spur-board` package as [SETUP.md](../../SETUP.md#2-install-the-package) says, then
    install the agent skills:
@@ -37,7 +41,9 @@ one and the fix for its common failures.
    [SETUP.md](../../SETUP.md#5-install-skills-and-verify) explains what it installs.
 
 3. Clone the repository, copy `projects.spur.yaml` to `spur.yaml` at the root of the checkout,
-   replace the example values, and connect it from the checkout:
+   replace the example values, and set each project's `defaultBranch` to the repository's default
+   branch if it is not `main`. Add `/spur.yaml` to `.git/info/exclude` in the clone to keep it out
+   of commits, then connect it from the checkout:
 
    ```sh
    spur connect spur.yaml
@@ -84,9 +90,9 @@ one and the fix for its common failures.
    board service install
    ```
 
-7. Start the reviewer and the operator sessions from the checkout and keep them open. The Board
-   does not start them; a Review turn with no live reviewer session reports `no-session` after
-   about 10 minutes.
+7. Complete the [first run of each agent](../../docs/quickstart.md#first-run-of-the-agent) from
+   the checkout. Then start the reviewer and operator sessions from the checkout. A Review turn
+   with no live reviewer session reports `no-session` after about 10 minutes.
 
    ```sh
    spur spawn example-reviewer "Review tasks in the Board's Review column for example-org/example-repo."
@@ -101,7 +107,8 @@ one and the fix for its common failures.
    ```
 
    Its `path.spur` and `orchestrator.sessions` checks need live Spur sessions, so they warn when
-   run before this step.
+   run before this step. In `spur list`, `Completed` or `Waiting` is normal between turns. Leave
+   both sessions open so they can receive their next prompts.
 
 8. Start one worker session per issue, with the issue URL in the prompt:
 
