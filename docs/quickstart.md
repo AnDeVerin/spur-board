@@ -36,11 +36,12 @@ later.
 
 ### On Ubuntu or Debian
 
-Ubuntu 24.04 ships Node 18 in its default apt repository. Install the latest Node 24.x release,
-which includes npm. Spur's systemd units run `/usr/bin/node`, so make the installed runtime
-available at that path as well as on your shell's `PATH`. See the
-[Node.js download page](https://nodejs.org/en/download) and
-[Spur's Node setup instructions](https://github.com/ashugaev/spur/blob/main/docs/install-from-npm.md).
+Ubuntu 24.04 ships Node 18 in its default apt repository. Select the latest 24.x release, which
+includes npm, on the [Node.js download page](https://nodejs.org/en/download).
+
+Install Node 24 system-wide so both your shell and `/usr/bin/node` use it. Spur's systemd user
+services run `/usr/bin/node` directly. If an older system package already owns that path, use a
+Node 24 package source that upgrades the system package in place.
 
 Install `gh` using the [GitHub CLI apt repository instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#debian).
 
@@ -257,10 +258,11 @@ Run board task example-org/example-repo#<N> --why and tell me the column, open t
 ```
 
 **Success looks like:** if the task is in `dev` with no open turn and a `submit_pending` hold,
-the worker already submitted. The PR can be open on GitHub while the Board still shows
-`dev gate fails: no PR`. The Board links the PR on the next poll that sees it. While the worker
-is still on its first Dev turn, the reason is `dev: no_pr`. The task may already be in `review`
-by the time you check. Find the worker's pull request on GitHub:
+the worker already submitted. The PR can be open on GitHub while `board task --why` still reports
+the Dev gate's `pr_open` condition as `failed` with reason `no_pr`. The Board links the PR on the
+next poll that sees it. While the worker is still on its first Dev turn, the turn reason is
+`dev: no_pr`. The task may already be in `review` by the time you check. Find the worker's pull
+request on GitHub:
 
 ```sh
 gh pr list --repo example-org/example-repo --author example-user --json number,body
