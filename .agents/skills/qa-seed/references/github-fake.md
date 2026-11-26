@@ -19,7 +19,8 @@
 - `create --seed` takes `baseRefName`, `main` by default, which `PrCommits` and `PrBases` answer.
 - `create --seed` takes `checkSuites: [{status, createdAt, workflowRun: {event, workflow: {id}} | null}]`,
   `[]` by default, answered under `statusCheckRollup.commit.checkSuites` of the detail read; no
-  verb changes it. A seeded check run's `checkSuite.workflowRun` also takes `event`. A required
+  verb changes it. A non-null `workflowRun`, on a seeded check run's `checkSuite` or a seeded
+  suite, needs a non-empty `event`; a seed with only `workflow.id` is refused. A required
   skipped check run in a suite of workflow W and event E reads pending while a seeded suite of W
   and E created after its suite is not `COMPLETED`.
 - A PR's commits are read only once core requests it: a PR created after its issue is only
