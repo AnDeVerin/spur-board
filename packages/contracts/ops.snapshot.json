@@ -1,5 +1,5 @@
 {
-  "version": "28263e9563eb16825ca3171650232c21b0b1897b8dd5d46a1adcf016b1d1299a",
+  "version": "fa112ff0bf4de5faf09c749f76b2b51c485af74a8027c3f24c444603702ae60f",
   "grants": [
     "operator",
     "project-agent",
@@ -5792,6 +5792,7 @@
                       "work",
                       "gate",
                       "done",
+                      "archived",
                       "config"
                     ],
                     "description": "What the task waits for, e.g. turn or merge."

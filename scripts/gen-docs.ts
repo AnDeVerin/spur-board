@@ -116,9 +116,11 @@ const WAITS_FOR_ROWS: Record<WaitsForKind, string> = {
     'The board: the first poll of the PR, a submit confirmation, the full comment history or the next dispatcher pass.',
   answer:
     'An answer to the blocks of an open cycle-limit or course-check item: `answer to B4 (curator)`.',
-  work: 'Work to start in the To Do group: `work to start: an open PR or a live worker`.',
+  work: 'Work to start in the To Do group, `work to start: an open PR or a live worker` (only an open PR after a reopen), or a worker session to end before a done ticket completes the task.',
   gate: "The column's exit conditions: `Review exit: no_review_on_head`.",
   done: 'Nothing: the task is done.',
+  archived:
+    'Nothing while the task is archived: the dispatcher skips it; unarchive it to resume. No gate carries a `waitsFor` text.',
   config: 'The project is gone from `config.yaml`: `the project in config.yaml (operator)`.',
 };
 

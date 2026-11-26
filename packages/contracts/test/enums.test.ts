@@ -206,6 +206,7 @@ it('lists what a task waits for', () => {
     'work',
     'gate',
     'done',
+    'archived',
     'config',
   ]);
 });

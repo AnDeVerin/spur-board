@@ -24,10 +24,20 @@ const merged: PrRef = { ...open, state: 'merged' };
 const closed: PrRef = { ...open, state: 'closed' };
 
 type Read = Extract<WaitsForFacts, { column: ColumnId }>;
+type Work = Read['work'];
+
+/** Nothing reopened, the ticket open and no live worker, with `changes` over it. */
+const work = (changes: Partial<Work> = {}): Work => ({
+  reopened: false,
+  ticketDone: false,
+  liveWorker: false,
+  ...changes,
+});
 
 /** A task in Review of the minimal board, its gate passing, with nothing holding it. */
 const facts = (changes: Partial<Read> = {}): Read => ({
   project: project(),
+  archived: false,
   gate: { ok: true },
   column: 'review',
   holds: [],
@@ -36,6 +46,7 @@ const facts = (changes: Partial<Read> = {}): Read => ({
   turn: null,
   waiting: [],
   pr: open,
+  work: work(),
   ...changes,
 });
 
@@ -55,6 +66,12 @@ const waitingOn = (
   });
 };
 
+const ARCHIVED: WaitsFor = {
+  kind: 'archived',
+  text: 'nothing while the task is archived; unarchive it to resume (operator)',
+  actor: 'operator',
+};
+
 const rows: [string, WaitsForFacts, WaitsFor][] = [
   [
     'the project left the config',
@@ -63,8 +80,18 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
   ],
   [
     'pr_snapshot_missing',
-    { project: project(), gate: null },
+    { project: project(), archived: false, gate: null },
     { kind: 'board', text: 'the first poll of the linked PR', actor: null },
+  ],
+  [
+    'an archived task, before a missing snapshot',
+    { project: project(), archived: true, gate: null },
+    ARCHIVED,
+  ],
+  [
+    'an archived task, before work to start',
+    facts({ archived: true, column: 'todo', holds: ['work_not_started'], pr: null }),
+    ARCHIVED,
   ],
   [
     'github_blind',
@@ -119,6 +146,16 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
     'work_not_started',
     facts({ column: 'todo', holds: ['work_not_started'], pr: null }),
     { kind: 'work', text: 'work to start: an open PR or a live worker', actor: null },
+  ],
+  [
+    'work_not_started after a reopen',
+    facts({
+      column: 'todo',
+      holds: ['work_not_started'],
+      pr: null,
+      work: work({ reopened: true }),
+    }),
+    { kind: 'work', text: 'work to start: an open PR (the ticket was reopened)', actor: null },
   ],
   [
     'checks_pending',
@@ -202,6 +239,16 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
     },
   ],
   [
+    'gate ok, next is Done, no PR, ticket done, worker live',
+    facts({ pr: null, work: work({ ticketDone: true, liveWorker: true }) }),
+    { kind: 'work', text: 'the worker session to end, with no open PR', actor: null },
+  ],
+  [
+    'gate ok, next is Done, no PR, ticket done, nothing live',
+    facts({ pr: null, work: work({ ticketDone: true }) }),
+    { kind: 'board', text: 'the next dispatcher pass to move it to done', actor: null },
+  ],
+  [
     'gate ok, next is Done, PR closed',
     facts({ pr: closed }),
     {
@@ -261,37 +308,70 @@ describe('waitsFor', () => {
 
 describe('gateWaitsFor', () => {
   const done = { column: 'done', enabled: true } as const;
-  const base = { column: 'review' as ColumnId, holds: [], pr: open, ticketDone: false };
+  const base = {
+    column: 'review' as ColumnId,
+    holds: [] as const,
+    pr: open,
+    archived: false,
+    work: work(),
+  };
+  const notStarted = { ...base, column: 'todo' as ColumnId, holds: ['work_not_started'] as const };
+  const noPr = { ...base, pr: null };
 
   it.each([
     ['done, PR open, ticket open', done, base, 'merge of o/r#7, then the ticket to close'],
-    ['done, PR open, ticket done', done, { ...base, ticketDone: true }, 'merge of o/r#7'],
+    [
+      'done, PR open, ticket done',
+      done,
+      { ...base, work: work({ ticketDone: true }) },
+      'merge of o/r#7',
+    ],
     ['done, PR merged', done, { ...base, pr: merged }, 'ticket to close'],
     [
       'done, PR merged, ticket done',
       done,
-      { ...base, pr: merged, ticketDone: true },
+      { ...base, pr: merged, work: work({ ticketDone: true }) },
       'the next dispatcher pass to move it to done',
     ],
+    ['done, no PR', done, noPr, 'ticket to close, with no open PR and no live worker'],
     [
-      'done, no PR',
+      'done, no PR, ticket done, worker live',
       done,
-      { ...base, pr: null },
-      'ticket to close, with no open PR and no live worker',
+      { ...noPr, work: work({ ticketDone: true, liveWorker: true }) },
+      'the worker session to end, with no open PR',
+    ],
+    [
+      'done, no PR, ticket done, nothing live',
+      done,
+      { ...noPr, work: work({ ticketDone: true }) },
+      'the next dispatcher pass to move it to done',
     ],
     [
       'the To Do group column the task sits in before work starts',
       { column: 'todo', enabled: true },
-      { ...base, column: 'todo', holds: ['work_not_started'], pr: null },
+      { ...notStarted, pr: null },
       'work to start: an open PR or a live worker',
     ],
+    [
+      'the To Do group column after a reopen',
+      { column: 'todo', enabled: true },
+      { ...notStarted, pr: null, work: work({ reopened: true }) },
+      'work to start: an open PR (the ticket was reopened)',
+    ],
     ['a disabled Done gate', { column: 'done', enabled: false }, base, undefined],
-    ['the Done gate of a task in Done', done, { ...base, column: 'done' }, undefined],
+    ['the Done gate of an archived task', done, { ...base, archived: true }, undefined],
+    [
+      'the To Do group column of an archived task',
+      { column: 'todo', enabled: true },
+      { ...notStarted, pr: null, archived: true },
+      undefined,
+    ],
+    ['the Done gate of a task in Done', done, { ...base, column: 'done' as ColumnId }, undefined],
     ['a gate with conditions', { column: 'review', enabled: true }, base, undefined],
     [
       'a To Do group gate the task is not in',
       { column: 'ready-for-dev', enabled: true },
-      { ...base, column: 'todo', holds: ['work_not_started'], pr: null },
+      { ...notStarted, pr: null },
       undefined,
     ],
   ] as const)('%s', (_name, gate, input, expected) => {

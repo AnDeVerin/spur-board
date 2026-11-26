@@ -164,6 +164,7 @@ export function createTaskQueries(deps: {
         checksWaivedBy: null,
       };
     const mode = project.dispatcher.mode;
+    const archived = task.membership === 'archived';
     const read = await readInput(
       trx,
       { ...task, column },
@@ -175,7 +176,7 @@ export function createTaskQueries(deps: {
     );
     if (read === null) {
       return {
-        waitsFor: waitsFor({ project, gate: null }),
+        waitsFor: waitsFor({ project, archived, gate: null }),
         ...shared,
         dispatcher: mode,
         holds: ['pr_snapshot_missing' as const],
@@ -224,25 +225,25 @@ export function createTaskQueries(deps: {
       ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
     ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
     const held = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
-    const heldBy = held.map((block) => block.id);
     const pending = read.pending?.state === 'pending' ? read.pending : undefined;
     const pr = read.prRef;
     return {
       waitsFor: waitsFor({
+        ...shared,
         project: read.input.project,
+        archived,
         gate,
-        column,
         holds,
         heldBlocks: held,
         pendingSha: pending?.sha,
-        turn: shared.turn,
         waiting,
         pr,
+        work: read.input,
       }),
       ...shared,
       dispatcher: mode,
       holds,
-      ...(heldBy.length === 0 ? {} : { heldBy }),
+      ...(held.length === 0 ? {} : { heldBy: held.map((block) => block.id) }),
       ...(pending === undefined
         ? {}
         : {
@@ -253,7 +254,7 @@ export function createTaskQueries(deps: {
             },
           }),
       gates: gates.map((entry) => {
-        const text = gateWaitsFor(entry, { column, holds, pr, ticketDone: read.input.ticketDone });
+        const text = gateWaitsFor(entry, { column, holds, pr, archived, work: read.input });
         return text === undefined ? entry : { ...entry, waitsFor: text };
       }),
       checksWaivedBy,
@@ -275,11 +276,10 @@ export function createTaskQueries(deps: {
       .where('operator_item.cleared_at', 'is', null)
       .orderBy('operator_item.id')
       .execute();
-    return items.flatMap((item) =>
-      item.block_id === null
-        ? []
-        : [{ id: `B${String(item.block_id)}`, addressee: item.addressee_role }],
-    );
+    return items.map((item) => ({
+      id: `B${String(item.block_id)}`,
+      addressee: item.addressee_role,
+    }));
   }
   const get: Query<'task.get'> = {
     id: 'task.get',

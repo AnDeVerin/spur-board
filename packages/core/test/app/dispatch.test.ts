@@ -10008,6 +10008,18 @@ describe('task.get why waitsFor', () => {
     );
   });
 
+  it('names nothing but the unarchive for an archived task, and no gate text', async () => {
+    const ctx = await started(minimal, 'none');
+    await ctx.archive();
+    const why = await waitsFor(ctx);
+    expect(why.waitsFor).toEqual({
+      kind: 'archived',
+      text: 'nothing while the task is archived; unarchive it to resume (operator)',
+      actor: 'operator',
+    });
+    expect(why.gates.filter((gate) => gate.waitsFor !== undefined)).toEqual([]);
+  });
+
   it('names the Dev turn of a live worker with no PR', async () => {
     const ctx = await started(minimal);
     expect((await waitsFor(ctx)).waitsFor).toEqual({
