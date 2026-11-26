@@ -128,6 +128,27 @@ export const suiteListWire = z
   .nullish();
 export type SuiteListWire = z.output<typeof suiteListWire>;
 /**
+ * The run of the same check (see `checkKey`) in the newest suite created after a skipped run's
+ * suite, if any. Overlapping runs of one workflow can record an older run's skip after a newer
+ * run's job started, so the skip wins by time while the newer run already reports.
+ */
+export function newerSuiteRun(
+  node: ContextWire,
+  nodes: readonly ContextWire[],
+): ContextWire | undefined {
+  if (node.__typename !== 'CheckRun' || !node.checkSuite) return undefined;
+  const skippedAt = Date.parse(node.checkSuite.createdAt);
+  if (Number.isNaN(skippedAt)) return undefined;
+  const key = checkKey(node);
+  let newest: { run: ContextWire; at: number } | undefined;
+  for (const other of nodes) {
+    if (other.__typename !== 'CheckRun' || !other.checkSuite || checkKey(other) !== key) continue;
+    const at = Date.parse(other.checkSuite.createdAt);
+    if (at > skippedAt && (newest === undefined || at > newest.at)) newest = { run: other, at };
+  }
+  return newest?.run;
+}
+/**
  * Whether a required check run skipped in one run of its workflow may still run: the head has a
  * suite of the same workflow and trigger event created after the skipped run's suite and not yet
  * completed. A run of another event, such as a manual dispatch of a workflow whose skipped job

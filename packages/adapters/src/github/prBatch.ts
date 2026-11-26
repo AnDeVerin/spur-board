@@ -22,6 +22,7 @@ import {
   contextName,
   contextWire,
   latestContexts,
+  newerSuiteRun,
   suiteListWire,
   type ContextWire,
   type SuiteListWire,
@@ -217,7 +218,8 @@ export function closingRefs(wire: ClosingWire): ClosingRef[] {
   );
 }
 
-// A required check skipped in one run reads pending while a newer run of its workflow runs.
+// A required check skipped in one run reads pending while a newer run of its workflow runs,
+// unless that run already has the check: then the newer run's check reports.
 function latestChecks(
   nodes: readonly ContextWire[],
   commit: SuiteListWire,
@@ -225,16 +227,19 @@ function latestChecks(
   checks: PrFacts['checks'];
   requiredChecks: PrFacts['requiredChecks'];
 } {
+  const visible = (
+    node: ContextWire,
+  ): Pick<PrFacts['checks'][number], 'state' | 'completedAt'> => ({
+    state: checkState(node),
+    completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
+  });
+  const shown = (node: ContextWire): Pick<PrFacts['checks'][number], 'state' | 'completedAt'> => {
+    if (!awaitsNewerRun(node, commit)) return visible(node);
+    const newer = newerSuiteRun(node, nodes);
+    return newer === undefined ? { state: 'pending', completedAt: null } : visible(newer);
+  };
   const values = latestContexts(nodes).map((node) => ({
-    check: {
-      name: contextName(node),
-      ...(awaitsNewerRun(node, commit)
-        ? { state: 'pending' as const, completedAt: null }
-        : {
-            state: checkState(node),
-            completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
-          }),
-    },
+    check: { name: contextName(node), ...shown(node) },
     required: node.isRequired === true,
   }));
   return {

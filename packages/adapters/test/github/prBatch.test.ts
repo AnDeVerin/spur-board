@@ -567,15 +567,33 @@ describe('GitHub PR batch', () => {
     const skipped = (
       required = true,
       workflowRun: Json = { event: 'pull_request', workflow: { id: 'W_1' } },
+      at = early,
     ): Json => ({
       __typename: 'CheckRun',
       name: 'notify',
       status: 'COMPLETED',
       conclusion: 'SKIPPED',
-      startedAt: early,
-      completedAt: early,
+      startedAt: at,
+      completedAt: at,
       checkSuite: { createdAt: early, workflowRun, app: { id: 'A_1' } },
       isRequired: required,
+    });
+    // The newer suite's run of the job, started before the older run recorded its skip.
+    const ranAt = '2026-01-04T00:01:00.000Z';
+    const slowSkip = skipped(true, undefined, '2026-01-05T00:00:00.000Z');
+    const newerRun = (status: string, conclusion: string | null): Json => ({
+      __typename: 'CheckRun',
+      name: 'notify',
+      status,
+      conclusion,
+      startedAt: ranAt,
+      completedAt: conclusion === null ? null : ranAt,
+      checkSuite: {
+        createdAt: late,
+        workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+        app: { id: 'A_1' },
+      },
+      isRequired: true,
     });
     const suite = (
       status: string,
@@ -595,7 +613,28 @@ describe('GitHub PR batch', () => {
     });
     const red = { name: 'notify', state: 'skipped', completedAt: early };
     const pending = { name: 'notify', state: 'pending', completedAt: null };
-    const cases: { name: string; node: Json; commit?: Json; check: unknown }[] = [
+    const cases: { name: string; node: Json; others?: Json[]; commit?: Json; check: unknown }[] = [
+      {
+        name: 'newer suite already failed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'FAILURE')],
+        commit: suites([suite('IN_PROGRESS')]),
+        check: { name: 'notify', state: 'failure', completedAt: ranAt },
+      },
+      {
+        name: 'newer suite still runs the job',
+        node: slowSkip,
+        others: [newerRun('IN_PROGRESS', null)],
+        commit: suites([suite('IN_PROGRESS')]),
+        check: pending,
+      },
+      {
+        name: 'newer suite passed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([suite('IN_PROGRESS')]),
+        check: { name: 'notify', state: 'success', completedAt: ranAt },
+      },
       {
         name: 'no newer suite',
         node: skipped(),
@@ -678,9 +717,9 @@ describe('GitHub PR batch', () => {
         check: pending,
       },
     ];
-    for (const { name, node, commit, check } of cases) {
+    for (const { name, node, others = [], commit, check } of cases) {
       const statusCheckRollup = {
-        contexts: conn([node]),
+        contexts: conn([node, ...others]),
         ...(commit === undefined ? {} : { commit }),
       };
       const facts = normalizePr('demo/widgets', { ...wire(), statusCheckRollup }, demoKeys, true);
