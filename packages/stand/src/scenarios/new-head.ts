@@ -110,6 +110,60 @@ export const dispatchCiPendingAfterSubmit: Scenario = {
   },
 };
 
+/** The worker's PR's one required check, skipped in the first run of `W_stand_ci`. */
+const SKIPPED_AT = '2026-01-01T00:00:00.000Z';
+const STAND_CI = { workflow: { id: 'W_stand_ci' } };
+const skippedRequiredSeed = {
+  contexts: [
+    {
+      __typename: 'CheckRun',
+      name: 'Slack notification',
+      status: 'COMPLETED',
+      conclusion: 'SKIPPED',
+      startedAt: SKIPPED_AT,
+      completedAt: SKIPPED_AT,
+      checkSuite: { createdAt: SKIPPED_AT, workflowRun: STAND_CI },
+      isRequired: true,
+    },
+  ],
+  checkSuites: [
+    { status: 'COMPLETED', createdAt: SKIPPED_AT, workflowRun: STAND_CI },
+    { status: 'IN_PROGRESS', createdAt: '2026-01-01T00:01:00.000Z', workflowRun: STAND_CI },
+  ],
+};
+/** Problems unless the task waits in Dev for CI on A with no worker turn. */
+async function waitsForCi(board: Board): Promise<string[]> {
+  const problems = await check(board, { column: 'dev' });
+  const turn = await turnOf(board, 'worker');
+  if (turn !== undefined) problems.push(`worker turn ${turn.reason}`);
+  const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
+  const expected = [{ reason: 'checks_pending', head: A, text: `waiting for CI on ${A}` }];
+  if (JSON.stringify(why?.waiting) !== JSON.stringify(expected))
+    problems.push(`why.waiting is ${JSON.stringify(why?.waiting)}`);
+  return problems;
+}
+
+export const dispatchSkippedRequiredNewerRun: Scenario = {
+  name: 'dispatch-skipped-required-newer-run',
+  summary: `PR #1 of ${ISSUE} has a required check skipped in one run while a newer run of its workflow is in progress: the worker's submit of A waits in Dev on CI, with no checks_red turn.`,
+  config: flow(),
+  async seed(board, fakes) {
+    const dev = await begin(board, fakes);
+    await take(board, 'worker', dev.id);
+    await openPr(board, fakes, { green: false, seed: skippedRequiredSeed });
+    const submitted = await submit(board, 'worker', dev.id, A);
+    if (submitted.task.column !== 'dev')
+      throw new Error(`the submit moved the task to ${submitted.task.column}`);
+    await board.poll();
+    const problems = await waitsForCi(board);
+    if (problems.length > 0) throw new Error(problems.join('; '));
+    return entities(board);
+  },
+  async settled({ board }) {
+    return settledUnless(await waitsForCi(board));
+  },
+};
+
 /** Throws unless the worker's submit of A on `turn` was accepted pending. */
 async function submitPending(board: Board, turn: string): Promise<void> {
   const submitted = await submit(board, 'worker', turn, A);
