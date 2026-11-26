@@ -10,10 +10,12 @@
           "startedAt": "2026-11-20T13:36:18Z",
           "completedAt": "2026-11-20T13:36:18Z",
           "checkSuite": {
-            "databaseId": 1,
             "createdAt": "2026-11-20T13:36:15Z",
+            "id": "CS_kwDOKx3Rbc8AAAAbxL9K1w",
             "workflowRun": {
               "event": "pull_request",
+              "runNumber": 4812,
+              "runAttempt": 1,
               "workflow": {
                 "id": "W_1"
               }
@@ -34,22 +36,26 @@
       "checkSuites": {
         "nodes": [
           {
-            "databaseId": 1,
+            "id": "CS_kwDOKx3Rbc8AAAAbxL9K1w",
             "status": "COMPLETED",
             "createdAt": "2026-11-20T13:36:15Z",
             "workflowRun": {
               "event": "pull_request",
+              "runNumber": 4812,
+              "runAttempt": 1,
               "workflow": {
                 "id": "W_1"
               }
             }
           },
           {
-            "databaseId": 2,
+            "id": "CS_kwDOKx3Rbc8AAAAbxL9MNg",
             "status": "IN_PROGRESS",
             "createdAt": "2026-11-20T13:37:05Z",
             "workflowRun": {
               "event": "pull_request",
+              "runNumber": 4813,
+              "runAttempt": 1,
               "workflow": {
                 "id": "W_1"
               }

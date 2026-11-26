@@ -144,10 +144,10 @@ function replayBody(body: Json): string {
           '',
         )
         .replaceAll(
-          ' commit { checkSuites(first: 100) { nodes { databaseId status createdAt workflowRun { event workflow { id } } } pageInfo { hasNextPage } } }',
+          ' commit { checkSuites(first: 100) { nodes { id status createdAt workflowRun { event runNumber runAttempt workflow { id } } } pageInfo { hasNextPage } } }',
           '',
         )
-        .replaceAll(' databaseId workflowRun { event workflow { id } } app { id }', '')
+        .replaceAll(' id workflowRun { event runNumber runAttempt workflow { id } } app { id }', '')
         .replace('rateLimit { cost limit remaining resetAt }', 'rateLimit { remaining resetAt }')
         .replaceAll(' createdAt body url lastEditedAt }', ' createdAt }')
         .replaceAll(' submittedAt url lastEditedAt }', ' submittedAt }')

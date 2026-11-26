@@ -17,12 +17,12 @@ const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PA
 const RATE_LIMIT = 'rateLimit { cost limit remaining resetAt }';
 const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
 // The suite id and workflow or app of a PR check run; the committed recordings select none.
-const SUITE_SOURCE = ' databaseId workflowRun { event workflow { id } } app { id }';
+const SUITE_SOURCE = ' id workflowRun { event runNumber runAttempt workflow { id } } app { id }';
 const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt${SUITE_SOURCE} } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
 // The head commit's check suites, read only by the detail query; no recording selects them.
 const SUITES =
-  ' commit { checkSuites(first: 100) { nodes { databaseId status createdAt workflowRun { event workflow { id } } } pageInfo { hasNextPage } } }';
+  ' commit { checkSuites(first: 100) { nodes { id status createdAt workflowRun { event runNumber runAttempt workflow { id } } } pageInfo { hasNextPage } } }';
 const prAlias = (closing: boolean): string =>
   `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} }${SUITES} } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const DEFAULT_BRANCH = `defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }`;

@@ -12,8 +12,18 @@ const typedActorSchema = z
 const commentBody = { body: z.string().default('Stand comment.') };
 // When a comment, review or inline comment was last edited; null when never.
 const lastEditedAt = { lastEditedAt: z.iso.datetime().nullable().default(null) };
-// A check suite's `databaseId`, which orders suites created in the same second; null unless seeded.
-const suiteId = z.number().int().positive().nullable().default(null);
+// A check suite's node id, which joins its check runs to the suite list; null unless seeded.
+const suiteId = z.string().min(1).nullable().default(null);
+// The Actions workflow run of a suite; its number and attempt order suites created in one second.
+const workflowRunSchema = z
+  .strictObject({
+    event: z.string().min(1),
+    runNumber: z.number().int().positive().default(1),
+    runAttempt: z.number().int().positive().default(1),
+    workflow: z.strictObject({ id: z.string().min(1) }),
+  })
+  .nullable()
+  .default(null);
 const contextSchema = z.discriminatedUnion('__typename', [
   z.strictObject({
     __typename: z.literal('CheckRun'),
@@ -24,16 +34,10 @@ const contextSchema = z.discriminatedUnion('__typename', [
     completedAt: z.string().nullable(),
     checkSuite: z
       .strictObject({
-        databaseId: suiteId,
         createdAt: z.string(),
+        id: suiteId,
         // The Actions workflow or the app that ran the check; GitHub sends null when absent.
-        workflowRun: z
-          .strictObject({
-            event: z.string().min(1),
-            workflow: z.strictObject({ id: z.string().min(1) }),
-          })
-          .nullable()
-          .default(null),
+        workflowRun: workflowRunSchema,
         app: z
           .strictObject({ id: z.string().min(1) })
           .nullable()
@@ -76,16 +80,10 @@ const fieldsSchema = z.strictObject({
   // seeded, and no verb changes them.
   checkSuites: z.array(
     z.strictObject({
-      databaseId: suiteId,
+      id: suiteId,
       status: z.string(),
       createdAt: z.iso.datetime(),
-      workflowRun: z
-        .strictObject({
-          event: z.string().min(1),
-          workflow: z.strictObject({ id: z.string().min(1) }),
-        })
-        .nullable()
-        .default(null),
+      workflowRun: workflowRunSchema,
     }),
   ),
   reviews: z.array(
