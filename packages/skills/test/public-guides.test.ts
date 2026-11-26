@@ -56,7 +56,7 @@ const QUICKSTART_STEPS = [
   '10. See the task in Done',
 ];
 const step = (n: number) => section(quickstart, `### ${QUICKSTART_STEPS[n - 1] ?? ''}`);
-const BOARD_QUERY = /(?<!\/)board (?:status|columns describe|inbox operator)/;
+const BOARD_QUERY = /(?<!\/)\bboard (?:status|task|columns describe|inbox operator)\b/;
 
 describe('public guide contents', () => {
   it('introduces newcomers with every built-in column and working links', () => {
@@ -131,16 +131,15 @@ describe('public guide contents', () => {
       if (BOARD_QUERY.test(part)) expect(part, part.split('\n')[0]).toContain('example-operator');
     for (const match of quickstart.matchAll(/```([^\n]*)\n([\s\S]*?)```/g)) {
       if (!['', 'sh', 'bash', 'shell'].includes((match[1] ?? '').trim())) continue;
-      for (const line of (match[2] ?? '').split('\n'))
-        expect(line.trim(), line).not.toMatch(/^board (?:status|columns describe|inbox operator)/);
+      for (const line of (match[2] ?? '').split('\n')) expect(line, line).not.toMatch(BOARD_QUERY);
     }
-    for (const [n, column] of [
-      [6, 'todo'],
-      [7, 'dev'],
-      [8, 'review'],
-      [10, 'done'],
+    for (const [n, column, query] of [
+      [6, 'todo', 'board status'],
+      [7, 'dev', 'board task example-org/example-repo#<N> --why'],
+      [8, 'review', 'board status'],
+      [10, 'done', 'board status'],
     ] as const) {
-      expect(step(n)).toContain('board status');
+      expect(step(n)).toContain(query);
       expect(step(n)).toContain(`\`${column}\``);
     }
     // Turn reasons from packages/core/src/domain/gates.ts (dev, review) and dispatch.ts (done).

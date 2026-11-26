@@ -172,7 +172,7 @@ Node: [service.node](../TROUBLESHOOTING.md#servicenode).
 
 ### First run of the agent
 
-Before the first `spur spawn`, start each agent you plan to use from the checkout as the same user
+Before starting your first Spur session, launch each agent from the checkout as the same user
 who runs Spur. For Claude Code, run `claude --dangerously-skip-permissions` to use the permission
 mode Spur uses. Claude Code can ask whether you trust the workspace, show a Bypass Permissions
 warning, and offer a renderer. Run `codex` if you use Codex and follow its own first-run prompts.
@@ -180,9 +180,9 @@ Sign in if prompted and exit each agent once it is ready for input.
 
 If a spawn is already stuck on a dialog, open `spur list` in a terminal, select the session and
 press Enter to attach. You can also run `tmux -L spur-4310 attach -t SESSION_ID`, replacing
-`SESSION_ID` with the ID printed by `spur spawn`. The socket is `spur-<port>`, with `4310` as the
-default Spur daemon port. Answer the dialogs, detach with Ctrl+G, then run `spur kill SESSION_ID`
-and repeat the original spawn command with its prompt.
+`SESSION_ID` with the ID from the session launch output. The socket is `spur-<port>`, with `4310`
+as the default Spur daemon port. Answer the dialogs, detach with Ctrl+G, then run
+`spur kill SESSION_ID` and repeat the original spawn command with its prompt.
 
 ### 5. Run `board doctor` until green
 
@@ -258,7 +258,7 @@ Run board task example-org/example-repo#<N> --why and tell me the column, open t
 ```
 
 **Success looks like:** if the task is in `dev` with no open turn and a `submit_pending` hold,
-the worker already submitted. The PR can be open on GitHub while `board task --why` still reports
+the worker already submitted. The PR can be open on GitHub while the task query still reports
 the Dev gate's `pr_open` condition as `failed` with reason `no_pr`. The Board links the PR on the
 next poll that sees it. While the worker is still on its first Dev turn, the turn reason is
 `dev: no_pr`. The task may already be in `review` by the time you check. Find the worker's pull
@@ -275,10 +275,10 @@ It lists a pull request whose `body` says `Closes #<N>`; its `number` is `<PR>` 
 CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
 and run `board service restart`, because the daemon reads the config only when it starts
 ([config.yaml fields](configuration.md#configyaml-fields)). If the task stays in `dev` after
-the Board polls the repository, ask `example-operator` whether the task links `<PR>`. If the
-link is still missing, check that the PR author is `operatorGithubLogin` and that its branch or
-title matches the link rules ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never
-gets its turn:
+the Board polls the repository, ask `example-operator` whether `<PR>` is in the task's `links.prs`.
+If the link is still missing, check that the PR author is `operatorGithubLogin` and that its
+branch or title matches the link rules ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker
+that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 8. Watch the reviewer review it
