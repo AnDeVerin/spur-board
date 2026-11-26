@@ -110,9 +110,9 @@ export const dispatchCiPendingAfterSubmit: Scenario = {
   },
 };
 
-/** The worker's PR's one required check, skipped in the first run of `W_stand_ci`. */
 const SKIPPED_AT = '2026-01-01T00:00:00.000Z';
 const STAND_CI = { workflow: { id: 'W_stand_ci' } };
+/** PR #1's one required check, skipped in a run of `W_stand_ci`, and a newer run still going. */
 const skippedRequiredSeed = {
   contexts: [
     {

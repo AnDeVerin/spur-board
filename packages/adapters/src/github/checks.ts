@@ -2,6 +2,7 @@
 import type { PrFacts } from '@spur-board/contracts';
 import { z } from 'zod';
 
+const workflowRunWire = z.object({ workflow: z.object({ id: z.string().min(1) }) });
 const checkRunWire = z
   .object({
     __typename: z.literal('CheckRun'),
@@ -14,7 +15,7 @@ const checkRunWire = z
     checkSuite: z
       .object({
         createdAt: z.string(),
-        workflowRun: z.object({ workflow: z.object({ id: z.string().min(1) }) }).nullish(),
+        workflowRun: workflowRunWire.nullish(),
         app: z.object({ id: z.string().min(1) }).nullish(),
       })
       .nullish(),
@@ -112,7 +113,7 @@ export const suiteListWire = z
             .object({
               status: z.string(),
               createdAt: z.string(),
-              workflowRun: z.object({ workflow: z.object({ id: z.string().min(1) }) }).nullable(),
+              workflowRun: workflowRunWire.nullable(),
             })
             .nullable(),
         ),
@@ -132,8 +133,8 @@ export function awaitsNewerRun(node: ContextWire, commit: SuiteListWire): boolea
   if (checkState(node) !== 'skipped') return false;
   const workflow = node.checkSuite?.workflowRun?.workflow.id;
   const suites = commit?.checkSuites;
-  if (workflow === undefined || node.checkSuite == null || !suites) return false;
-  if (suites.pageInfo.hasNextPage) return false;
+  if (!node.checkSuite || workflow === undefined || !suites || suites.pageInfo.hasNextPage)
+    return false;
   const skippedAt = Date.parse(node.checkSuite.createdAt);
   if (Number.isNaN(skippedAt)) return false;
   return suites.nodes.some(
