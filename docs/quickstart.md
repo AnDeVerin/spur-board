@@ -275,10 +275,11 @@ It lists a pull request whose `body` says `Closes #<N>`; its `number` is `<PR>` 
 CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
 and run `board service restart`, because the daemon reads the config only when it starts
 ([config.yaml fields](configuration.md#configyaml-fields)). If the task stays in `dev` after
-the Board polls the repository, ask `example-operator` whether `<PR>` is in the task's `links.prs`.
-If the link is still missing, check that the PR author is `operatorGithubLogin` and that its
-branch or title matches the link rules ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker
-that never gets its turn:
+the Board polls the repository, ask `example-operator` to check the task query's `links` for a
+`kind: pr` entry with the `ref` `example-org/example-repo#<PR>`. If it is present, ask which Dev
+gate condition still holds the task in Dev. If it is missing, check that the PR author is
+`operatorGithubLogin` and that its branch or title matches the link rules
+([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 8. Watch the reviewer review it

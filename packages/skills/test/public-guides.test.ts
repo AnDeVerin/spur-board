@@ -10,7 +10,7 @@ import {
   resolveWebOrigin,
   SPUR_MIN_VERSION,
 } from '../../contracts/src/index.ts';
-import { statusTaskSchema } from '../../contracts/src/ops/schemas.ts';
+import { taskGetOutputSchema } from '../../contracts/src/browser.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
@@ -169,20 +169,26 @@ describe('public guide contents', () => {
     expect(requirements).toMatch(/After step 3, from the\s+checkout/);
   });
 
-  it('judges each step by real Board status fields', () => {
-    const task = statusTaskSchema.shape;
+  it('judges each step by fields returned by its Board query', () => {
+    const prLink = taskGetOutputSchema.shape.links.element.safeParse({
+      kind: 'pr',
+      ref: 'example-org/example-repo#42',
+      role: null,
+    });
     const gates = readFileSync(
       fileURLToPath(new URL('../../core/src/domain/gates.ts', import.meta.url)),
       'utf8',
     );
     // Step, the Board fact a reader checks there, and whether it exists in the code.
-    const facts: [number, string, boolean][] = [
-      [7, '`links.prs`', 'prs' in task.links.shape],
-      [9, '`review_on_head` gate met on the current head', /^\s*review_on_head: \{/m.test(gates)],
+    const facts: [number, string[], boolean][] = [
+      [7, ['`links`', '`kind: pr`', '`ref`', '`example-org/example-repo#<PR>`'], prLink.success],
+      [9, ['`review_on_head` gate met on the current head'], /^\s*review_on_head: \{/m.test(gates)],
     ];
-    for (const [n, fact, exists] of facts) {
-      expect(exists, fact).toBe(true);
-      expect(flat(step(n)), `step ${String(n)}: ${fact}`).toContain(fact);
+    for (const [n, fields, exists] of facts) {
+      expect(exists, `step ${String(n)}`).toBe(true);
+      for (const field of fields) {
+        expect(flat(step(n)), `step ${String(n)}: ${field}`).toContain(field);
+      }
     }
   });
 
