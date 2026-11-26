@@ -218,8 +218,8 @@ export function closingRefs(wire: ClosingWire): ClosingRef[] {
   );
 }
 
-// A required check skipped in one run reads pending while a newer run of its workflow runs,
-// unless that run already has the check: then the newer run's check reports.
+// A required check skipped in one run reports its run in a newer suite of the same workflow and
+// event, finished or not; without one it reads pending while a newer run of its workflow runs.
 function latestChecks(
   nodes: readonly ContextWire[],
   commit: SuiteListWire,
@@ -234,9 +234,9 @@ function latestChecks(
     completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
   });
   const shown = (node: ContextWire): Pick<PrFacts['checks'][number], 'state' | 'completedAt'> => {
-    if (!awaitsNewerRun(node, commit)) return visible(node);
     const newer = newerSuiteRun(node, nodes);
-    return newer === undefined ? { state: 'pending', completedAt: null } : visible(newer);
+    if (newer !== undefined) return visible(newer);
+    return awaitsNewerRun(node, commit) ? { state: 'pending', completedAt: null } : visible(node);
   };
   const values = latestContexts(nodes).map((node) => ({
     check: { name: contextName(node), ...shown(node) },

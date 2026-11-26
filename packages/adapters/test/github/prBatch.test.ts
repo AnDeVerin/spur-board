@@ -581,7 +581,8 @@ describe('GitHub PR batch', () => {
     // The newer suite's run of the job, started before the older run recorded its skip.
     const ranAt = '2026-01-04T00:01:00.000Z';
     const slowSkip = skipped(true, undefined, '2026-01-05T00:00:00.000Z');
-    const newerRun = (status: string, conclusion: string | null): Json => ({
+    const lateSkip = { name: 'notify', state: 'skipped', completedAt: '2026-01-05T00:00:00.000Z' };
+    const newerRun = (status: string, conclusion: string | null, event = 'pull_request'): Json => ({
       __typename: 'CheckRun',
       name: 'notify',
       status,
@@ -590,7 +591,7 @@ describe('GitHub PR batch', () => {
       completedAt: conclusion === null ? null : ranAt,
       checkSuite: {
         createdAt: late,
-        workflowRun: { event: 'pull_request', workflow: { id: 'W_1' } },
+        workflowRun: { event, workflow: { id: 'W_1' } },
         app: { id: 'A_1' },
       },
       isRequired: true,
@@ -634,6 +635,37 @@ describe('GitHub PR batch', () => {
         others: [newerRun('COMPLETED', 'SUCCESS')],
         commit: suites([suite('IN_PROGRESS')]),
         check: { name: 'notify', state: 'success', completedAt: ranAt },
+      },
+      {
+        name: 'finished newer suite passed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS')],
+        commit: suites([suite('COMPLETED')]),
+        check: { name: 'notify', state: 'success', completedAt: ranAt },
+      },
+      {
+        name: 'finished newer suite failed the job',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'FAILURE')],
+        commit: suites([suite('COMPLETED')]),
+        check: { name: 'notify', state: 'failure', completedAt: ranAt },
+      },
+      {
+        name: 'newer run of the job from a manual dispatch',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS', 'workflow_dispatch')],
+        commit: suites([suite('COMPLETED', late, 'W_1', 'workflow_dispatch')]),
+        check: lateSkip,
+      },
+      {
+        name: 'manual dispatch run beside an unfinished pull request run',
+        node: slowSkip,
+        others: [newerRun('COMPLETED', 'SUCCESS', 'workflow_dispatch')],
+        commit: suites([
+          suite('IN_PROGRESS'),
+          suite('COMPLETED', late, 'W_1', 'workflow_dispatch'),
+        ]),
+        check: pending,
       },
       {
         name: 'no newer suite',
