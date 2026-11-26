@@ -570,7 +570,8 @@ describe('GitHub PR batch', () => {
       workflowRun === null || runNumber === null
         ? workflowRun
         : { ...(workflowRun as Record<string, Json>), runNumber, runAttempt: 1 };
-    const suiteId = (n: number | null): string | null => (n === null ? null : `CS_kwDOH${n}`);
+    const suiteId = (n: number | null): string | null =>
+      n === null ? null : `CS_kwDOH${String(n)}`;
     const skipped = (
       required = true,
       workflowRun: Json = { event: 'pull_request', workflow: { id: 'W_1' } },
