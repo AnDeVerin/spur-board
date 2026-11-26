@@ -37,6 +37,9 @@ that changes these rules updates this skill in the same PR.
 ## CLI
 
 - `--json`, or stdout that is not a TTY, prints JSON; a TTY gets the human format.
+- A catalog `cli.view` (`CliView` in `packages/contracts/src/ops/define.ts`) shapes one
+  operation's TTY output: a lead line, entries left out, and the flag that keeps them. JSON is
+  never shaped.
 - Stdout carries only the result. The idempotency key, hints and errors go to stderr.
 - The CLI never prompts. A future prompt checks `isTTY` and has a flag that skips it.
 - Help shows every catalog example, checked under `describe('catalog commands')` in
