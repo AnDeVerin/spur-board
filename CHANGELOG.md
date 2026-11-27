@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.171.3](https://github.com/AnDeVerin/spur-board/compare/v0.171.2...v0.171.3) (2026-11-27)
+
+### Bug Fixes
+
+* **core:** [#923](https://github.com/AnDeVerin/spur-board/issues/923) defer worker idle after a merge ([#929](https://github.com/AnDeVerin/spur-board/issues/929)) ([e956209](https://github.com/AnDeVerin/spur-board/commit/e956209084b1f192c9bd60bb67854e4f99f4089f))
+
 ## [0.171.2](https://github.com/AnDeVerin/spur-board/compare/v0.171.1...v0.171.2) (2026-11-27)
 
 ### Bug Fixes
