@@ -150,6 +150,13 @@ describe('public guide contents', () => {
     expect(step(7)).toContain('gh pr list');
     expect(step(9)).toContain('gh issue view');
     expect(step(9)).toContain('--json state');
+    // The CLI needs a Spur session identity: step 6 says how to reach the operator session.
+    expect(quickstart.split('spur send')).toHaveLength(2);
+    const six = step(6);
+    expect(flat(six)).toContain('`spur send <session id> "…"`');
+    expect(six.indexOf('spur send')).toBeGreaterThan(-1);
+    expect(six.indexOf('spur send')).toBeLessThan(six.indexOf('```text'));
+    expect(six).toContain('`spur list`');
   });
 
   it('runs the setup commands in order on a fresh host and safely again', () => {
@@ -394,6 +401,8 @@ describe('public guide contents', () => {
     expect(check).toContain('keep working until `board token revoke`');
     expect(check).not.toContain('only Spur sessions reach the Board');
     expect(check).toContain('remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`');
+    expect(troubleshooting).toContain('`spur send <session id> "<request>"`');
+    expect(troubleshooting).toContain('With Slack (`slack.channels` set in `config.yaml`)');
     expect(flat(read('../../../SECURITY.md'))).toContain('only Slack can approve a request');
     expect(flat(read('../setup/SKILL.md'))).toContain('ask whether the operator wants Slack');
     expect(flat(read('../setup/references/access.md'))).toContain('Token approval needs Slack');
