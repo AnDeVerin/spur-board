@@ -310,6 +310,7 @@ export const sampleRows: SampleRows = {
     misses: 1,
     gone: 0,
     outcome: 'not_found',
+    confirmed_missing_at: null,
   },
   pr_continuation: {
     source: 'github',

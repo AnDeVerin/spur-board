@@ -1074,6 +1074,7 @@ describe('authorized task PR refresh', () => {
       misses: 3,
       gone: 1 as const,
       outcome: 'not_found' as const,
+      confirmed_missing_at: null,
     };
     await store.db.insertInto('source_miss').values(foreignMiss).execute();
     await query(registry['task.get'], { task: KEY, refresh: true }, 'operator');

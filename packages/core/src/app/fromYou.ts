@@ -7,6 +7,7 @@ import {
   sessionFactsSchema,
   SPUR_REQUEST_TIMEOUT,
   ticketFactsSchema,
+  trackerSourceId,
   type ColumnId,
   type Config,
   type SessionFacts,
@@ -379,6 +380,7 @@ export async function reconcileItems(
     new Date(now),
     sourceById.get('spur')?.last_complete_at ?? null,
   );
+  const confirmedIssueMisses = new Map<string, string>();
   const misses = await trx.selectFrom('source_miss').selectAll().execute();
   for (const miss of misses) {
     // A linked PR or ticket raises an item only once the runner counts it gone.
@@ -413,6 +415,8 @@ export async function reconcileItems(
       continue;
     }
     if (ref.kind !== 'ticket') continue;
+    if (miss.confirmed_missing_at !== null)
+      confirmedIssueMisses.set(miss.ref_key, miss.confirmed_missing_at);
     const task = tasks.find((entry) => entry.key === ref.key);
     if (task === undefined) continue;
     candidates.push({
@@ -1024,10 +1028,19 @@ export async function reconcileItems(
       continue;
     if (flag.kind === 'worker_idle' && task.tracker_kind === 'github-issues') {
       const merged = mergedSeenAt.get(task.id);
-      const read = tickets.get(task.id)?.last_read_at;
-      if (merged != null && (read == null || Date.parse(read) <= Date.parse(merged))) {
-        heldKeys.push(healthKey(task.id, flag));
-        continue;
+      if (merged != null) {
+        const project = config.projects.find((entry) => entry.id === task.project);
+        const miss =
+          project === undefined
+            ? undefined
+            : confirmedIssueMisses.get(
+                `ticket:${trackerSourceId(project)}:${task.tracker_id ?? task.key}`,
+              );
+        const checked = latest([tickets.get(task.id)?.last_read_at, miss]);
+        if (checked === null || Date.parse(checked) <= Date.parse(merged)) {
+          heldKeys.push(healthKey(task.id, flag));
+          continue;
+        }
       }
     }
     const fact = subjects.find(

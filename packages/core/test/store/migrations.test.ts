@@ -1123,18 +1123,25 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
-  it('leaves merge acceptance and positive ticket read times unknown for legacy rows', () => {
+  it('leaves merge acceptance, ticket reads, and confirmed misses unknown for legacy rows', () => {
     const { raw } = rawDb(join(tempDir(), 'board.db'));
     migrate(raw, real.slice(0, 30));
     const pr = without(sampleRows.pr_snapshot, ['merged_seen_at']);
     const ticket = without(sampleRows.ticket_snapshot, ['last_read_at']);
+    const miss = without(sampleRows.source_miss, ['confirmed_missing_at']);
     insertRaw(raw, 'task', sampleRows.task);
     insertRaw(raw, 'pr_snapshot', pr);
     insertRaw(raw, 'ticket_snapshot', ticket);
+    insertRaw(raw, 'source_state', sampleRows.source_state);
+    insertRaw(raw, 'source_miss', miss);
 
-    expect(migrate(raw, real).applied).toEqual(['0031_merge_observation']);
+    expect(migrate(raw, real).applied).toEqual([
+      '0031_merge_observation',
+      '0032_confirmed_issue_miss',
+    ]);
     expect(rows(raw, 'pr_snapshot')).toEqual([{ ...pr, merged_seen_at: null }]);
     expect(rows(raw, 'ticket_snapshot')).toEqual([{ ...ticket, last_read_at: null }]);
+    expect(rows(raw, 'source_miss')).toEqual([{ ...miss, confirmed_missing_at: null }]);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
@@ -1369,6 +1376,8 @@ describe('migration pins', () => {
     '0030_turn_wait.sql': '12f7d7510a24deef864539a74b73120529f9432a54fa96d2dfce578963a4137d',
     '0031_merge_observation.sql':
       '7582eaa9a04cca11ac22ede9b35289a0b6c7a1b508b9f69efcea210ae28557c0',
+    '0032_confirmed_issue_miss.sql':
+      '38855964960391ee7a4ac4cd5e57b6952752be6ce8f1455776721663af7dd706',
     '0019_pr_polling.sql': '17e2b7964c72320f484ae05ae54e68f5964ebc06ea6c5e014013d13f2060d198',
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',

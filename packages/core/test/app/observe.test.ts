@@ -2891,50 +2891,54 @@ describe('anomaly blocks', () => {
     expect(await acceptance(8)).toEqual({ merged_seen_at: null });
   });
 
-  it.each([
-    {
-      scenario: 'fresh confirmed miss',
-      status: 'not_found',
-      complete: true,
-      gone: true,
-      delay: 1_000,
-      raises: true,
-    },
-    {
-      scenario: 'equal poll start',
-      status: 'not_found',
-      complete: true,
-      gone: true,
-      delay: 0,
-      raises: false,
-    },
-    {
-      scenario: 'unconfirmed miss',
-      status: 'not_found',
-      complete: true,
-      gone: false,
-      delay: 1_000,
-      raises: false,
-    },
-    {
-      scenario: 'incomplete poll',
-      status: 'not_found',
-      complete: false,
-      gone: true,
-      delay: 1_000,
-      raises: false,
-    },
-    {
-      scenario: 'missing access',
-      status: 'no_access',
-      complete: true,
-      gone: true,
-      delay: 1_000,
-      raises: false,
-    },
-  ] as const)(
-    'uses issue lookup results after a merge: $scenario',
-    async ({ status, complete, gone, delay, raises }) => {
+  it.each(
+    (
+      [
+        {
+          scenario: 'fresh confirmed miss',
+          status: 'not_found',
+          complete: true,
+          gone: true,
+          delay: 1_000,
+          raises: true,
+        },
+        {
+          scenario: 'equal poll start',
+          status: 'not_found',
+          complete: true,
+          gone: true,
+          delay: 0,
+          raises: false,
+        },
+        {
+          scenario: 'unconfirmed miss',
+          status: 'not_found',
+          complete: true,
+          gone: false,
+          delay: 1_000,
+          raises: false,
+        },
+        {
+          scenario: 'incomplete poll',
+          status: 'not_found',
+          complete: false,
+          gone: true,
+          delay: 1_000,
+          raises: false,
+        },
+        {
+          scenario: 'missing access',
+          status: 'no_access',
+          complete: true,
+          gone: true,
+          delay: 1_000,
+          raises: false,
+        },
+      ] as const
+    ).flatMap((lookup) => [true, false].map((hasSnapshot) => ({ ...lookup, hasSnapshot }))),
+  )(
+    'uses issue lookup results after a merge: $scenario, ticket snapshot $hasSnapshot',
+    async ({ status, complete, gone, delay, raises, hasSnapshot }) => {
       const b = await board();
       const idle = () =>
         b.store.db
@@ -2942,7 +2946,7 @@ describe('anomaly blocks', () => {
           .select('cleared_at')
           .where('item_key', 'like', 'health:%:worker_idle')
           .execute();
-      await poll(b, source, [{ kind: 'ticket', facts: fact() }]);
+      if (hasSnapshot) await poll(b, source, [{ kind: 'ticket', facts: fact() }]);
       await spur(b, [session('worker-1', 'waiting')]);
       await prs(b, [pr(7, 'open')]);
       now += IDLE;
@@ -2959,6 +2963,13 @@ describe('anomaly blocks', () => {
         outcomes: [{ ref, misses: gone ? 3 : 1, gone }],
       });
       expect(await idle()).toEqual(raises ? [{ cleared_at: null }] : []);
+      expect(
+        await b.store.db
+          .selectFrom('ticket_snapshot')
+          .select('task_id')
+          .where('task_id', '=', b.task.id)
+          .execute(),
+      ).toHaveLength(hasSnapshot ? 1 : 0);
     },
   );
 

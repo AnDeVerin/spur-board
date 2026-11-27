@@ -1507,6 +1507,15 @@ export function createObservationCore(deps: {
         for (const outcome of observation.outcomes) {
           const ref = outcome.ref;
           const answer = batch.entities.find((entity) => refKey(entity.ref) === refKey(ref));
+          const confirmedMissingAt =
+            project?.tracker.type === 'github-issues' &&
+            ref.kind === 'ticket' &&
+            ref.trackerId === source &&
+            batch.complete &&
+            outcome.gone &&
+            answer?.status === 'not_found'
+              ? batch.observedAt
+              : null;
           await trx
             .insertInto('source_miss')
             .values({
@@ -1516,46 +1525,20 @@ export function createObservationCore(deps: {
               misses: outcome.misses,
               gone: outcome.gone ? 1 : 0,
               outcome: answer?.status ?? null,
+              confirmed_missing_at: confirmedMissingAt,
             })
             .onConflict((oc) =>
               oc.columns(['source', 'ref_key']).doUpdateSet({
                 misses: outcome.misses,
                 gone: outcome.gone ? 1 : 0,
                 outcome: answer?.status ?? null,
+                ...(answer?.status === 'ok' && { confirmed_missing_at: null }),
+                ...(confirmedMissingAt !== null && {
+                  confirmed_missing_at: sql<string>`max(coalesce(source_miss.confirmed_missing_at, ${confirmedMissingAt}), ${confirmedMissingAt})`,
+                }),
               }),
             )
             .execute();
-          if (
-            project?.tracker.type === 'github-issues' &&
-            ref.kind === 'ticket' &&
-            ref.trackerId === source &&
-            batch.complete &&
-            outcome.gone &&
-            answer?.status === 'not_found'
-          ) {
-            // A confirmed missing issue satisfies the idle alert's read barrier. Keep the last
-            // known ticket facts for dispatch and membership.
-            const task = trx
-              .selectFrom('task')
-              .select('id')
-              .where('project', '=', project.id)
-              .where('tracker_kind', '=', 'github-issues');
-            await trx
-              .updateTable('ticket_snapshot')
-              .set({ last_read_at: batch.observedAt })
-              .where('source', '=', source)
-              .where(
-                'task_id',
-                'in',
-                ref.id === undefined
-                  ? task.where('key', '=', ref.key)
-                  : task.where('tracker_id', '=', ref.id),
-              )
-              .where((eb) =>
-                eb.or([eb('last_read_at', 'is', null), eb('last_read_at', '<', batch.observedAt)]),
-              )
-              .execute();
-          }
         }
         const branchCounts = new Map<string, number>();
         for (const item of batch.items)

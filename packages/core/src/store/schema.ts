@@ -443,6 +443,8 @@ export interface SourceMissTable {
   misses: number;
   gone: Flag;
   outcome: 'ok' | 'not_found' | 'no_access' | null;
+  /** Poll start of the latest confirmed missing GitHub Issue since a successful lookup. */
+  confirmed_missing_at: Generated<string | null>;
 }
 
 /**
