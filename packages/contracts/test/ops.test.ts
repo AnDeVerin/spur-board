@@ -1081,9 +1081,9 @@ describe('snapshot', () => {
     // with Slack. #910 adds task.get why.waitsFor (optional for older daemons, its kind naming
     // archived), the optional gates[].waitsFor and the cli.view binding, and rewords the task.get
     // guidance, why and gates descriptions. #926 describes the default-branch lookback and
-    // confirmation time in status.get.
+    // confirmation time in status.get, including unsuccessful results and retention on no verdict.
     expect(await catalogVersion(baseline)).toBe(
-      'f7cb14ce7b272172f43f6abee726c1b004b12466b4e96cf239a2c74ecc904ffc',
+      '17f7394f31c3d9c79f36b8bf2ec83824b273bed1db02985f98450cd11bd76da7',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

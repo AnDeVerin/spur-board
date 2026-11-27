@@ -157,14 +157,16 @@ const defaultBranchCommit = {
 export const defaultBranchFactSchema = z
   .discriminatedUnion('state', [
     z.strictObject({
-      state: z.literal('green').describe('Every counted check finished successfully.'),
+      state: z
+        .literal('green')
+        .describe('Every counted check finished as success, neutral or skipped.'),
       ...defaultBranchCommit,
     }),
     z.strictObject({
       state: z
         .literal('red')
         .describe(
-          'At least one counted check finished without success (failed, cancelled, timed out).',
+          'At least one counted check has a completed result other than success, neutral or skipped.',
         ),
       ...defaultBranchCommit,
       check: z.string().min(1).nullable().describe('Name of the first failing check, if known.'),
