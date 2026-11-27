@@ -268,8 +268,14 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 ### 9. Merge the pull request
 
 The reviewer posts its verdict, reviewed head and notes on the pull request before submitting
-or returning the Board turn. The task stays in `review` after a submit. Ask `example-operator`
-to check the Review gate and the task's History:
+or returning the Board turn. The comment looks like this:
+
+```text
+Board Review — Verdict: Ready | Head: <reviewed SHA> | Notes: Checked the acceptance criteria and test results.
+```
+
+The task stays in `review` after a submit. Ask `example-operator` to check the Review gate and
+the task's History:
 
 ```text
 Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
