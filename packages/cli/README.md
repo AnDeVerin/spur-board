@@ -4,8 +4,7 @@ A kanban for agent-driven development on top of [Spur](https://github.com/ashuga
 local daemon that tracks tasks across GitHub, Jira and agent sessions, a `board` CLI and MCP
 server for agents, and optionally Slack for the human operator.
 
-**Status:** early development. Work is tracked in
-[GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
+Work is tracked in [GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
 
 ## What it needs
 

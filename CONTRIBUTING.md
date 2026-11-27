@@ -55,9 +55,7 @@ body as its message. Review changes go in new commits; never force-push a pushed
 
 spur-board follows semantic versioning. semantic-release reads each squash commit on `main`: `feat`
 bumps the minor, `fix` and `perf` bump the patch, and other types release nothing. A breaking
-change, a `!` after the scope or a breaking footer, bumps the minor while the version is 0.x and
-the major from 1.0.0 on. The maintainer cuts 1.0.0 in a PR with a `!` title that removes the 0.x
-clamp in `scripts/release-analyzer.ts`.
+change bumps the major when the title uses `!` or the commit has a breaking footer.
 
 Breaking: the config schema, CLI commands and flags, MCP operations, HTTP API operations, error codes and their HTTP status or exit code, stored data and migrations, and web routes users bookmark.
 

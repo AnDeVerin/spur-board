@@ -46,7 +46,7 @@ module.exports = {
   tagFormat: 'v${version}',
   plugins: [
     [
-      require.resolve('./scripts/release-analyzer.ts'),
+      require.resolve('@semantic-release/commit-analyzer'),
       {
         preset: 'conventionalcommits',
         parserOpts,
