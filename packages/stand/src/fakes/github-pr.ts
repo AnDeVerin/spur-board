@@ -13,7 +13,7 @@ import {
   type Verb,
 } from './github-pr-control.ts';
 import type { IssueProject } from './github-issues.ts';
-import { rollupState } from './github-pr-rollup.ts';
+import { branchCheckRun, rollupState } from './github-pr-rollup.ts';
 import { KNOWN_SHAPES } from './github-pr-shapes.ts';
 import { projectIssuesView, projectOwnerView } from './github-project.ts';
 import {
@@ -33,7 +33,7 @@ const REVIEWER = 'stand-reviewer';
 const BOT = 'stand-bot';
 interface BranchCommit {
   sha: string;
-  contexts: (WireObject & { checkSuite: WireObject })[];
+  contexts: ReturnType<typeof branchCheckRun>[];
 }
 
 function page(connection: string, items: readonly Wire[], args: Args): WireObject {
@@ -418,22 +418,9 @@ export function createGithubPrFake(options: {
     const sha = createHash('sha1')
       .update(`${repo.toLowerCase()}:${String(heads)}`)
       .digest('hex');
-    const run = (name: string, conclusion: string, event: string) => ({
-      __typename: 'CheckRun',
-      name,
-      status: 'COMPLETED',
-      conclusion,
-      startedAt: at,
-      completedAt: at,
-      detailsUrl: `https://github.stand.invalid/${repo}/actions/runs/${String(heads)}`,
-      checkSuite: {
-        createdAt: at,
-        workflowRun: {
-          event,
-          workflow: { id: event === 'push' ? 'W_stand_ci' : 'W_stand_nightly' },
-        },
-      },
-    });
+    const detailsUrl = `https://github.stand.invalid/${repo}/actions/runs/${String(heads)}`;
+    const run = (name: string, conclusion: string, event: string) =>
+      branchCheckRun(name, conclusion, event, at, detailsUrl);
     const contexts =
       state === 'unchecked' ? [] : [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
     if (scheduledFailure !== undefined) contexts.push(run(scheduledFailure, 'FAILURE', 'schedule'));
