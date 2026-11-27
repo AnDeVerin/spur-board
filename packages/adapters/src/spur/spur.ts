@@ -58,6 +58,8 @@ class SpurRequestError extends AdapterError {
 function describePlace(place: { path: string; page?: number | undefined }): string {
   return place.page === undefined ? place.path : `${place.path} page ${String(place.page)}`;
 }
+const linksWire = z.array(z.object({ label: z.string().min(1), url: z.string() }));
+const sessionLinkUrl = sessionFactsSchema.shape.links.valueType;
 const sessionWire = z.object({
   id: z.string().min(1),
   project: z.string().min(1),
@@ -66,11 +68,7 @@ const sessionWire = z.object({
   state: z.string().min(1),
   rateLimitResetAt: z.iso.datetime().optional(),
   lastActivityAt: z.iso.datetime().nullable().optional(),
-  slots: z
-    .object({
-      links: z.array(z.object({ label: z.string().min(1), url: z.url() })).optional(),
-    })
-    .optional(),
+  slots: z.object({ links: linksWire.optional() }).optional(),
   queuedMessages: z.object({ messages: z.array(z.string()) }).optional(),
 });
 const transitionWire = z.object({
@@ -78,7 +76,7 @@ const transitionWire = z.object({
   sessionId: z.string().min(1),
   project: z.string().min(1),
   at: z.iso.datetime(),
-  links: z.array(z.object({ label: z.string().min(1), url: z.url() })),
+  links: linksWire,
   kind: z.enum(['status', 'state']),
   from: z.string().min(1).nullable(),
   to: z.string().min(1),
@@ -109,7 +107,7 @@ export interface SpurAdapterOptions {
   flipSmoothingMs: number;
   now: () => number;
   fetch?: typeof fetch;
-  /** Receives a note about a successful request that took more than half its timeout. */
+  /** Receives notes about slow successful requests and discarded session links. */
   warn?: ((message: string) => void) | undefined;
   onNotice?: ((notice: SpurNotice) => void | Promise<void>) | undefined;
 }
@@ -132,6 +130,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
   let instanceId: string | undefined;
   const unknownHealthValues = new Set<string>();
   const unknownStatusValues = new Set<string>();
+  const warnedLinks = new Set<string>();
   const isKnownHealth = (value: string) => SESSION_HEALTH_STATES.some((state) => state === value);
   const isKnownStatus = (value: string) => SESSION_STATUSES.some((status) => status === value);
 
@@ -240,15 +239,32 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     return { ...previous, candidate };
   }
 
+  function webLinks(sessionId: string, links: z.output<typeof linksWire>): SessionFacts['links'] {
+    const kept: [string, string][] = [];
+    for (const { label, url } of links) {
+      const parsed = sessionLinkUrl.safeParse(url);
+      if (parsed.success) {
+        kept.push([label, parsed.data]);
+        continue;
+      }
+      if (options.warn === undefined) continue;
+      const key = JSON.stringify([sessionId, label]);
+      if (warnedLinks.has(key)) continue;
+      warnedLinks.add(key);
+      options.warn(
+        `Discarded invalid Spur web link ${JSON.stringify(label)} for session ${JSON.stringify(sessionId)}`,
+      );
+    }
+    return Object.fromEntries(kept);
+  }
+
   function facts(
     wire: SessionWire,
     observedAt: string,
     state: HealthObservation,
     endReason: 'complete' | 'kill' | null,
   ): SessionFacts {
-    const links = Object.fromEntries(
-      (wire.slots?.links ?? []).map(({ label, url }) => [label, url]),
-    );
+    const links = webLinks(wire.id, wire.slots?.links ?? []);
     const prUrl = links['pr'];
     let pr: SessionFacts['pr'] = null;
     if (prUrl !== undefined) {
@@ -334,7 +350,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
               session: entry.sessionId,
               spurProject: entry.project,
               at: entry.at,
-              links: Object.fromEntries(entry.links.map(({ label, url }) => [label, url])),
+              links: webLinks(entry.sessionId, entry.links),
               dimension: entry.kind === 'status' ? 'lifecycle' : 'health',
               from: entry.from,
               to: entry.to,

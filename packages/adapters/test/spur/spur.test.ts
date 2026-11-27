@@ -119,6 +119,109 @@ describe('Spur adapter', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['inventory', 'detail'] as const)(
+    'retains web links and other session facts when %s contains local links',
+    async (path) => {
+      const id = 'local-links';
+      const session = {
+        ...wire,
+        id,
+        slots: {
+          links: [
+            { label: 'report', url: '/tmp/report.html' },
+            { label: 'trace', url: 'file:///tmp/trace.log' },
+            {
+              label: 'pr',
+              url: path === 'inventory' ? '/tmp/pr.md' : 'file://github.com/demo/app/pull/42',
+            },
+            { label: 'tracker', url: 'https://example.com/1' },
+            { label: 'preview', url: 'http://example.com/2' },
+          ],
+        },
+      };
+      const inventory = path === 'inventory' ? [wire, session] : [wire];
+      const adapter = createSpurAdapter({
+        ...adapterOptions,
+        fetch: (input) =>
+          Promise.resolve(
+            response(requestUrl(input).pathname === '/sessions' ? inventory : session),
+          ),
+      });
+      const batch = await adapter.poll(context([id]));
+
+      expect(batch.complete).toBe(true);
+      expect(batch.items).toMatchObject([
+        { kind: 'session', facts: { id: wire.id, pr: { repo: 'demo/app', number: 42 } } },
+        { kind: 'session', facts: { id, lifecycle: 'running', health: 'waiting', pr: null } },
+      ]);
+      expect(batch.items[1]?.facts).toHaveProperty('links', {
+        tracker: 'https://example.com/1',
+        preview: 'http://example.com/2',
+      });
+      expect(batch.entities).toEqual([{ ref: { kind: 'session', id }, status: 'ok' }]);
+    },
+  );
+
+  it('discards local transition links and warns once per session and label across all reads', async () => {
+    const links = [
+      { label: 'report', url: '/tmp/report.html' },
+      { label: 'trace', url: 'file:///tmp/trace.log' },
+      { label: 'tracker', url: 'https://example.com/1' },
+    ];
+    const session = { ...wire, slots: { links } };
+    const other = { ...session, id: 'other-session', slots: { links: links.slice(0, 1) } };
+    const transition = {
+      cursor: 'history',
+      sessionId: session.id,
+      project: session.project,
+      kind: 'state',
+      from: 'working',
+      to: 'waiting',
+      at: at(0),
+      links,
+    };
+    const warn = vi.fn<(message: string) => void>();
+    let listed = true;
+    const adapter = createRealSpurAdapter({
+      ...adapterOptions,
+      warn,
+      fetch: (input) => {
+        switch (requestUrl(input).pathname) {
+          case '/sessions/transitions':
+            return Promise.resolve(
+              response({
+                entries: listed ? [transition] : [],
+                nextCursor: 'history',
+                hasMore: false,
+              }),
+            );
+          case '/sessions':
+            return Promise.resolve(response(listed ? [session, other] : [other]));
+          default:
+            return Promise.resolve(response(session));
+        }
+      },
+    });
+
+    const first = await adapter.poll(context([session.id]));
+    expect(first.sessionTransitions).toMatchObject([
+      { session: session.id, dimension: 'health', to: 'waiting' },
+    ]);
+    expect(first.sessionTransitions?.[0]?.links).toEqual({ tracker: 'https://example.com/1' });
+    listed = false;
+    await adapter.poll(context([session.id]));
+
+    expect(warn).toHaveBeenCalledTimes(3);
+    const [report, trace, otherReport] = warn.mock.calls.flat();
+    expect(report).toContain(session.id);
+    expect(report).toContain('report');
+    expect(trace).toContain(session.id);
+    expect(trace).toContain('trace');
+    expect(otherReport).toContain(other.id);
+    expect(otherReport).toContain('report');
+    expect(warn.mock.calls.flat().join('\n')).not.toContain('/tmp/');
+  });
+
   it('stamps observation and health times from the injected now', async () => {
     const adapter = createSpurAdapter({
       ...adapterOptions,

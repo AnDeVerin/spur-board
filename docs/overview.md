@@ -84,7 +84,8 @@ cycle limit.
 ## Spur, Slack and the web UI
 
 Spur runs the agent sessions. The Board reads the session list and links a session to a task by a
-label on the session, its pull request or its branch. Each Board project lists the Spur projects it
+label on the session, its pull request or its branch. It keeps valid HTTP and HTTPS links from Spur
+and skips local paths and other URLs. Each Board project lists the Spur projects it
 uses, each with a role; an operator or orchestrator can also serve every project at once
 ([Orchestrator projects](configuration.md#orchestrator-projects)). A doorbell is a message the Board
 sends into a session through Spur; it rings up to three times until the session acknowledges it.
