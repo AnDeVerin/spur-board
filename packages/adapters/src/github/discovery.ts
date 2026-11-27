@@ -6,6 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { checkState, contextName, latestContexts } from './checks.ts';
+import type { GraphError } from './client.ts';
 
 const timestamp = z
   .string()
@@ -117,8 +118,9 @@ const branchCommitWire = z.object({
       }),
     })
     .nullable(),
-  parents: z.object({ nodes: z.array(z.unknown()).max(1) }).optional(),
+  parents: z.unknown().optional(),
 });
+const branchParentsWire = z.object({ nodes: z.array(z.unknown()).max(1) });
 const defaultBranchWire = z.object({
   defaultBranchRef: z.object({
     name: z.string(),
@@ -132,17 +134,37 @@ function counted(node: BranchContext): boolean {
 const PASSED = new Set(['success', 'neutral', 'skipped']);
 const RUNNING = new Set(['pending', 'expected']);
 
+// A failure on a parent connection affects the next commit, even if the connection is null.
+function branchErrorDepth({ path }: GraphError): number {
+  if (path?.[2] !== 'target') return 0;
+  let depth = 0;
+  let offset = 3;
+  while (path[offset] === 'parents') {
+    depth += 1;
+    if (path[offset + 1] !== 'nodes' || path[offset + 2] !== 0) break;
+    offset += 3;
+  }
+  return depth;
+}
+
 /**
  * The colour of the newest checked commit in the default branch's first-parent window. Walk
  * past a commit only when it has no counted checks. Without a visible failure, a running or
  * incompletely read commit leaves the colour unknown.
  */
-export function defaultBranchFact(repository: unknown): Batch['defaultBranch'] {
+export function defaultBranchFact(
+  repository: unknown,
+  errors: readonly GraphError[],
+): Batch['defaultBranch'] {
   const parsed = defaultBranchWire.safeParse(repository);
   if (!parsed.success) return undefined;
   const { name: branch, target } = parsed.data.defaultBranchRef;
+  const unreadableDepth = errors.reduce(
+    (limit, error) => Math.min(limit, branchErrorDepth(error)),
+    Infinity,
+  );
   let commit: unknown = target;
-  while (commit !== undefined) {
+  for (let depth = 0; depth < unreadableDepth && commit !== undefined; depth += 1) {
     const result = branchCommitWire.safeParse(commit);
     if (!result.success) return undefined;
     const { oid, statusCheckRollup, parents } = result.data;
@@ -150,7 +172,7 @@ export function defaultBranchFact(repository: unknown): Batch['defaultBranch'] {
     const kept = contexts?.nodes.filter(counted) ?? [];
     const truncated = contexts?.pageInfo.hasNextPage ?? false;
     if (kept.length > 0 || truncated) return branchColour(branch, oid, kept, truncated);
-    commit = parents?.nodes[0];
+    commit = branchParentsWire.safeParse(parents).data?.nodes[0];
   }
   return undefined;
 }
