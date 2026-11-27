@@ -24,6 +24,7 @@ import {
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
   TASK_HOLDS,
+  WAITS_FOR_KINDS,
   TODO_GROUP_COLUMN_IDS,
   TOKEN_STATUSES,
   TURN_OUTCOMES,
@@ -188,6 +189,25 @@ it('lists task holds', () => {
     'submit_pending',
     'cycle_limit',
     'work_not_started',
+  ]);
+});
+
+it('lists what a task waits for', () => {
+  expect(WAITS_FOR_KINDS).toEqual([
+    'turn',
+    'merge',
+    'approval',
+    'ticket',
+    'checks',
+    'github',
+    'spur',
+    'board',
+    'answer',
+    'work',
+    'gate',
+    'done',
+    'archived',
+    'config',
   ]);
 });
 

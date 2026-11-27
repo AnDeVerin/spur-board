@@ -149,6 +149,13 @@ describe('public guide contents', () => {
     expect(step(7)).toContain('gh pr list');
     expect(step(9)).toContain('gh issue view');
     expect(step(9)).toContain('--json state');
+    // The CLI needs a Spur session identity: step 6 says how to reach the operator session.
+    expect(quickstart.split('spur send')).toHaveLength(2);
+    const six = step(6);
+    expect(flat(six)).toContain('`spur send <session id> "…"`');
+    expect(six.indexOf('spur send')).toBeGreaterThan(-1);
+    expect(six.indexOf('spur send')).toBeLessThan(six.indexOf('```text'));
+    expect(six).toContain('`spur list`');
   });
 
   it('runs the setup commands in order on a fresh host and safely again', () => {
@@ -175,14 +182,15 @@ describe('public guide contents', () => {
       ref: 'example-org/example-repo#42',
       role: null,
     });
-    const gates = readFileSync(
-      fileURLToPath(new URL('../../core/src/domain/gates.ts', import.meta.url)),
+    const waitsForSource = readFileSync(
+      fileURLToPath(new URL('../../core/src/domain/waits-for.ts', import.meta.url)),
       'utf8',
     );
     // Step, the Board fact a reader checks there, and whether it exists in the code.
     const facts: [number, string[], boolean][] = [
       [7, ['`links`', '`kind: pr`', '`ref`', '`example-org/example-repo#<PR>`'], prLink.success],
-      [9, ['`review_on_head` gate met on the current head'], /^\s*review_on_head: \{/m.test(gates)],
+      [9, ['`waits for: merge of'], /`merge of \$\{/.test(waitsForSource)],
+      [10, ['`waits for: ticket to close`'], waitsForSource.includes("'ticket to close'")],
     ];
     for (const [n, fields, exists] of facts) {
       expect(exists, `step ${String(n)}`).toBe(true);
@@ -190,6 +198,41 @@ describe('public guide contents', () => {
         expect(flat(step(n)), `step ${String(n)}: ${field}`).toContain(field);
       }
     }
+  });
+
+  it.each([
+    ['quickstart', step(5)],
+    ['minimal example', read('../../../examples/minimal/README.md')],
+  ])('explains how to identify and replace an ended reviewer in the %s', (_name, text) => {
+    const guide = flat(text);
+    expect(guide).toContain('`Waiting` in `spur list` is normal between turns');
+    expect(guide).toContain('`Completed` can describe a finished prompt or an ended session');
+    expect(guide).toContain('`orchestrator.sessions` check shows which reviewer session');
+    expect(guide).toContain('no live reviewer, repeat the reviewer launch command above');
+  });
+
+  it.each([
+    ['missing verdict after takeover', [/comment is missing after an operator takeover/]],
+    ['stale verdict on the same turn', [/comment .* still shows an earlier verdict/]],
+    [
+      'another Review turn on the same SHA',
+      [/latest reviewer comment for the current head/, /use its turn ID to match the notes/],
+    ],
+    [
+      'a new push after review',
+      [
+        /--why --refresh/,
+        /--json headRefOid --jq '\.headRefOid'/,
+        /the refresh fails or the SHAs differ/,
+      ],
+    ],
+  ])('uses the Board outcome: %s', (_, guidance) => {
+    const merge = flat(step(9));
+    for (const rule of guidance) expect(merge).toMatch(rule);
+    expect(merge).toContain('use the submitted turn in History for the outcome');
+    expect(merge).toContain(
+      'When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.',
+    );
   });
 
   it('asks the operator session only for registered board commands and flags', () => {
@@ -399,6 +442,8 @@ describe('public guide contents', () => {
     expect(check).toContain('keep working until `board token revoke`');
     expect(check).not.toContain('only Spur sessions reach the Board');
     expect(check).toContain('remove `SLACK_BOT_TOKEN` and `SLACK_API_URL` from `secrets.env`');
+    expect(troubleshooting).toContain('`spur send <session id> "<request>"`');
+    expect(troubleshooting).toContain('With Slack (`slack.channels` set in `config.yaml`)');
     expect(flat(read('../../../SECURITY.md'))).toContain('only Slack can approve a request');
     expect(flat(read('../setup/SKILL.md'))).toContain('ask whether the operator wants Slack');
     expect(flat(read('../setup/references/access.md'))).toContain('Token approval needs Slack');

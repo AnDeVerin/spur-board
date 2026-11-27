@@ -107,8 +107,10 @@ create worktrees. The [quickstart](../../docs/quickstart.md) shows how to verify
    ```
 
    Its `path.spur` and `orchestrator.sessions` checks need live Spur sessions, so they warn when
-   run before this step. In `spur list`, `Completed` or `Waiting` is normal between turns. Leave
-   both sessions open so they can receive their next prompts.
+   run before this step. `Waiting` in `spur list` is normal between turns. `Completed` can describe a
+   finished prompt or an ended session. The `orchestrator.sessions` check shows which reviewer
+   session can receive the next turn. If it reports no live reviewer, repeat the reviewer launch
+   command above to start a replacement.
 
 8. Start one worker session per issue, with the issue URL in the prompt:
 
@@ -120,9 +122,11 @@ create worktrees. The [quickstart](../../docs/quickstart.md) shows how to verify
 
 The issue is a task in Todo. When the worker links its session, the Board moves the task to Dev
 and gives the worker a Dev turn. The worker pushes, opens a PR that closes the issue and submits
-its head. With green checks the task goes to Review, where the reviewer submits the head or
-returns the task to Dev with the changes it needs. After the reviewer submits, you merge the PR;
-the task then moves to Done, and the worker wraps up and submits its Done turn.
+its head. With green checks the task goes to Review. The reviewer posts its verdict, reviewed
+head and notes on the PR, then submits the head or returns the task to Dev with the changes it
+needs. Follow [Quickstart step 9](../../docs/quickstart.md#9-merge-the-pull-request) to check the
+verdict and Board Review gate on the current head before you merge. The task then moves to Done,
+and the worker wraps up and submits its Done turn.
 
 If the repository runs no CI checks, uncomment `reposWithoutCi` in `config.yaml`: otherwise a PR
 with no checks waits in Dev.

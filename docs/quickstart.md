@@ -200,9 +200,11 @@ With both sessions live, run every check:
 board doctor
 ```
 
-**Success looks like:** the command exits 0 with no `FAIL` line. In `spur list`, the reviewer and
-operator can show `Completed` or `Waiting` between turns. Leave them open so they can receive
-their next prompts. `WARNING web.spurUiOrigin` is expected without a Spur UI origin.
+**Success looks like:** the command exits 0 with no `FAIL` line. `Waiting` in `spur list` is normal
+between turns. `Completed` can describe a finished prompt or an ended session. The
+`orchestrator.sessions` check shows which reviewer session can receive the next turn. If it
+reports no live reviewer, repeat the reviewer launch command above to start a replacement.
+`WARNING web.spurUiOrigin` is expected without a Spur UI origin.
 `WARNING link.rules` is expected until the repository has a pull request by `operatorGithubLogin`.
 It never blocks
 ([link.rules](../TROUBLESHOOTING.md#linkrules)). `path.spur` and `orchestrator.sessions` must
@@ -229,7 +231,12 @@ gh issue create --repo example-org/example-repo --title "Add a hello script" --b
 ```
 
 `gh` prints the issue URL; its number is `<N>` below. The Board polls GitHub issues about every
-two minutes. After that, in the `example-operator` session, ask it to run `board status`:
+two minutes. After that, in the `example-operator` session, ask it to run `board status`.
+
+The CLI takes its identity from the Spur session it runs in, so `board status` in a plain shell
+fails with `identity_missing`. Type the request in the `example-operator` session, or send it from
+a shell with `spur send <session id> "…"` and read the reply by opening the session from
+`spur list`, which also shows the session id:
 
 ```text
 Run board status and tell me the column of example-org/example-repo#<N>.
@@ -304,20 +311,41 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 9. Merge the pull request
 
-The agents never merge: you do. The task stays in `review` after the reviewer submits, so first
-ask `example-operator` whether the Review gate is met:
+The agents never merge: you do. The reviewer posts its verdict, reviewed head, turn ID and notes
+on the pull request before submitting or returning the Board turn. The comment looks like this:
 
 ```text
-Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
+Board Review — Verdict: Ready | Head: <reviewed SHA> | Turn: <Review turn ID> | Notes: Checked the acceptance criteria and test results.
 ```
 
-When it reports the `review_on_head` gate met on the current head, open the pull request in the
-browser and press the merge button
-([Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates):
+Open the pull request and read the latest reviewer comment for the current head. A change to the
+pull request description can lead to another Review turn on the same commit:
 
 ```sh
 gh pr view <PR> --repo example-org/example-repo --web
 ```
+
+The task stays in `review` after a submit. Ask `example-operator` what the task waits for, and
+find the submitted turn in History. If you have a comment, use its turn ID to match the notes
+to that submission:
+
+```text
+Run board task example-org/example-repo#<N> --why --refresh and tell me what the task waits for on the refreshed head.
+Run board task history example-org/example-repo#<N> and tell me which Review turn submitted that head and what full SHA it submitted.
+```
+
+If the comment is missing after an operator takeover or it still shows an earlier verdict,
+use the submitted turn in History for the outcome. Just before merging, read the head SHA from
+GitHub:
+
+```sh
+gh pr view <PR> --repo example-org/example-repo --json headRefOid --jq '.headRefOid'
+```
+
+When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review
+gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.
+If the refresh fails or the SHAs differ, recheck the gate and the head before merging.
+[Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
 
@@ -347,8 +375,8 @@ that turn with `board submit` at the head the turn names; an ack alone leaves it
 task stays in `done` with no open turn, and the history lists the wrap-up turn's `turn_closed`
 with outcome `submitted`.
 
-**If it fails:** a task that stays in Review after the merge waits for the closed issue: check
-that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
+**If it fails:** a task that stays in Review after the merge reads `waits for: ticket to close`:
+check that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
 
 ## Add more columns
 

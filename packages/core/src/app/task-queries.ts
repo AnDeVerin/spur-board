@@ -9,8 +9,9 @@ import {
 import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
+import { gateWaitsFor, waitsFor } from '../domain/waits-for.ts';
 import type { CommentTable, TaskTable } from '../store/schema.ts';
-import { authorize, projectTarget } from './authorize.ts';
+import { authorize, isOperator, projectTarget } from './authorize.ts';
 import {
   answeredVia,
   answeredViaColumn,
@@ -24,7 +25,7 @@ import {
 import { approvalViews, type ApprovalView } from './approval-watch.ts';
 import { linkView, moveViews, parsePr, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
-import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
+import { holdBlocks } from './hold-blocks.ts';
 import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { historyEvents } from './history.ts';
@@ -154,8 +155,16 @@ export function createTaskQueries(deps: {
       ...(withoutCommit === undefined ? {} : { submittedWithoutCommit: withoutCommit }),
     };
     if (project === undefined)
-      return { ...shared, dispatcher: null, holds: [], gates: [], checksWaivedBy: null };
+      return {
+        waitsFor: waitsFor({ project: null }),
+        ...shared,
+        dispatcher: null,
+        holds: [],
+        gates: [],
+        checksWaivedBy: null,
+      };
     const mode = project.dispatcher.mode;
+    const archived = task.membership === 'archived';
     const read = await readInput(
       trx,
       { ...task, column },
@@ -167,6 +176,7 @@ export function createTaskQueries(deps: {
     );
     if (read === null) {
       return {
+        waitsFor: waitsFor({ project, archived, gate: null }),
         ...shared,
         dispatcher: mode,
         holds: ['pr_snapshot_missing' as const],
@@ -214,13 +224,31 @@ export function createTaskQueries(deps: {
       ...dispatchHolds(read.input),
       ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
     ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
-    const heldBy = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
+    const held = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
     const pending = read.pending?.state === 'pending' ? read.pending : undefined;
+    const ladder = {
+      ...shared,
+      project: read.input.project,
+      archived,
+      gate,
+      holds,
+      heldBlocks: held,
+      pendingSha: pending?.sha,
+      waiting,
+      pr: read.prRef,
+      work: read.input,
+      turn: shared.turn && {
+        ...shared.turn,
+        byOperator:
+          shared.turn.taken !== null && isOperator(shared.turn.taken.by, config, task.project),
+      },
+    };
     return {
+      waitsFor: waitsFor(ladder),
       ...shared,
       dispatcher: mode,
       holds,
-      ...(heldBy.length === 0 ? {} : { heldBy }),
+      ...(held.length === 0 ? {} : { heldBy: held.map((block) => block.id) }),
       ...(pending === undefined
         ? {}
         : {
@@ -230,27 +258,13 @@ export function createTaskQueries(deps: {
               text: `submit pending confirmation of ${pending.sha.slice(0, 7)}`,
             },
           }),
-      gates,
+      gates: gates.map((entry) => {
+        const text = gateWaitsFor(entry, ladder);
+        return text === undefined ? entry : { ...entry, waitsFor: text };
+      }),
       checksWaivedBy,
       ...(waiting.length === 0 ? {} : { waiting }),
     };
-  }
-  /** The blocks of the active cycle-limit and course-check items that hold the task's turn. */
-  async function holdBlocks(trx: Trx, taskId: number): Promise<string[]> {
-    const items = await trx
-      .selectFrom('operator_item')
-      .select('block_id')
-      .where((eb) =>
-        eb.or([
-          eb('item_key', 'like', `${cycleKeyPrefix(taskId)}%`),
-          eb('item_key', 'like', `${courseKeyPrefix(taskId)}%`),
-        ]),
-      )
-      .where('cleared_at', 'is', null)
-      .where('block_id', 'is not', null)
-      .orderBy('id')
-      .execute();
-    return items.flatMap((item) => (item.block_id === null ? [] : [`B${String(item.block_id)}`]));
   }
   const get: Query<'task.get'> = {
     id: 'task.get',

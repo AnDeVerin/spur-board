@@ -50,6 +50,9 @@ here are in `packages/contracts/test/ops.test.ts`.
 - A union input declares `cli.modes`: one `{mode, flag, value}` per branch, e.g. `--done` filling
   `ref`, or `value: null` for a bare flag. A plain input has none. The "binds one CLI flag per
   branch" test checks it.
+- `cli.view` shapes only TTY output. Its `when` names a boolean input field, and its `hide.flag`
+  is free of input, mode, `--key` and `--json` flags; `defineOperation` refuses either, and the
+  "binds a CLI view to a boolean input field and a free flag" test checks it.
 - A union input's JSON Schema root is `oneOf` with no `type`; the MCP generator has to add
   `type: 'object'`.
 - MCP annotations in `packages/cli/src/mcp.ts`: `kind` sets `readOnlyHint` and `idempotentHint`;

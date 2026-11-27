@@ -253,7 +253,14 @@ const reviewGates: GateView[] = [
     blockedIn: 'review',
     conditions: [failed('merged', 'not_merged')],
   },
-  { column: 'done', enabled: true, ok: true, blockedIn: 'review', conditions: [] },
+  {
+    column: 'done',
+    enabled: true,
+    ok: true,
+    blockedIn: 'review',
+    conditions: [],
+    waitsFor: 'merge of example/web#9, then the ticket to close',
+  },
 ];
 
 const taskOutput = z.strictObject({ task: taskViewSchema });
@@ -399,14 +406,28 @@ export const OPERATIONS = [
     kind: 'query',
     description: 'Show a task; refresh reads GitHub PRs.',
     mcp: {
-      whenToUse: 'Inspect a task; detail adds closed turns.',
+      whenToUse: 'Inspect a task; why starts with what it waits for, detail adds closed turns.',
       whenNotToUse: 'Use task_history for past events.',
     },
     input: taskGetInputSchema,
     output: taskGetOutputSchema,
     grants: operatorOrProjectAgent,
     errors: ['wrong_id_kind', 'not_found', 'github_unavailable'],
-    cli: { command: 'task', args: ['task'] },
+    cli: {
+      command: 'task',
+      args: ['task'],
+      view: {
+        when: 'why',
+        lead: { label: 'waits for', path: ['why', 'waitsFor', 'text'] },
+        hide: {
+          path: ['why', 'gates'],
+          field: 'enabled',
+          flag: '--all',
+          description:
+            'With --why on a terminal, also list the gates of disabled columns; JSON always lists every column.',
+        },
+      },
+    },
     slack: { kind: 'slash-command', usage: '/board task <KEY> [why]' },
     examples: [
       {
@@ -441,6 +462,11 @@ export const OPERATIONS = [
           blocks: [],
           comments: [],
           why: {
+            waitsFor: {
+              kind: 'turn',
+              text: 'Review turn T4 (orchestrator:review)',
+              actor: 'orchestrator:review',
+            },
             column: 'review',
             dispatcher: 'on',
             holds: [],

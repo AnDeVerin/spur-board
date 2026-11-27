@@ -281,6 +281,29 @@ export const TASK_HOLDS = [
 ] as const;
 export type TaskHold = (typeof TASK_HOLDS)[number];
 
+/**
+ * What a task waits for, as `board task --why` names it in `why.waitsFor`: an open turn, a merge,
+ * a human approval, the ticket, CI checks, GitHub, Spur, the board itself, an answer to a block,
+ * work to start or end, a failing gate, nothing (`done`, `archived`), or the project config.
+ */
+export const WAITS_FOR_KINDS = [
+  'turn',
+  'merge',
+  'approval',
+  'ticket',
+  'checks',
+  'github',
+  'spur',
+  'board',
+  'answer',
+  'work',
+  'gate',
+  'done',
+  'archived',
+  'config',
+] as const;
+export type WaitsForKind = (typeof WAITS_FOR_KINDS)[number];
+
 /** Every operator item kind; core's `ITEM_POLICY` gives each one a policy. */
 export const ITEM_KINDS = [
   'token_request',

@@ -22,8 +22,8 @@ that changes these rules updates this skill in the same PR.
 - `outputSchema` is the operation's `output`; the handler returns the result as
   `structuredContent`. Change the catalog output, not the tool.
 - Two operations have a detailed mode, off by default: `status.get` compact rows include turns, PR summaries and navigation links; `detail`
-  adds full facts. `task.get` always returns the open turn; its `why` adds the gates,
-  holds, open turn and last moves, and its `detail` adds the last 5 closed turns.
+  adds full facts. `task.get` always returns the open turn; its `why` starts with
+  `waitsFor` and adds the gates, holds, open turn and last moves, and its `detail` adds the last 5 closed turns.
   The `status.get` default size budget is pinned in `packages/core/test/app/registry.test.ts`.
 - No operation has a limit, cursor or pagination; the unlinked rows of `status.get` have no
   count cap, but finished rows older than 7 days are left out and counted in its
@@ -37,6 +37,9 @@ that changes these rules updates this skill in the same PR.
 ## CLI
 
 - `--json`, or stdout that is not a TTY, prints JSON; a TTY gets the human format.
+- A catalog `cli.view` (`CliView` in `packages/contracts/src/ops/define.ts`) shapes one
+  operation's TTY output: a lead line, entries left out, and the flag that keeps them. JSON is
+  never shaped.
 - Stdout carries only the result. The idempotency key, hints and errors go to stderr.
 - The CLI never prompts. A future prompt checks `isTTY` and has a flag that skips it.
 - Help shows every catalog example, checked under `describe('catalog commands')` in

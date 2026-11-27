@@ -4,6 +4,7 @@ import YAML from 'yaml';
 import {
   OPERATIONS,
   SECRET_ENV_KEYS,
+  WAITS_FOR_KINDS,
   configJsonSchema,
   configSchema,
 } from '../packages/contracts/src/index.ts';
@@ -106,6 +107,16 @@ describe('generated public references', () => {
     ]);
     for (const text of ['watchedAfter', 'board rollback'])
       expect(section?.split('\n## ')[0]).toContain(text);
+  });
+
+  it('cli.md names waitsFor, every kind and --all', () => {
+    const section = cli.split('## Why a task waits')[1]?.split('\n## ')[0];
+    for (const text of ['`why.waitsFor`', '`waits for: <text>`', '`--all`', '`--json`'])
+      expect(section).toContain(text);
+    const rows = (section ?? '').replace(/ +/g, ' ');
+    for (const kind of WAITS_FOR_KINDS) expect(rows).toContain(`| \`${kind}\` |`);
+    const task = cli.split('\n### `board task`\n')[1]?.split('\n### ')[0];
+    expect(task).toContain('`--all` — With --why on a terminal');
   });
 
   it('cli.md names the review rule waits and their texts', () => {

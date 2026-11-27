@@ -12,10 +12,17 @@ import {
 import { hostname, homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Command, CommanderError, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { ERRORS, OPERATIONS, requestHashOf, roleCanUseOperation } from '@spur-board/contracts';
+import {
+  ERRORS,
+  OPERATIONS,
+  requestHashOf,
+  roleCanUseOperation,
+  type CliView,
+} from '@spur-board/contracts';
 import { z } from 'zod';
 import { fetchTokenStatus, requestOperation, requestTokenEnrollment } from './client.ts';
 import {
+  boardSlackState,
   configFile,
   loadClientConfig,
   loadEnrollmentConfig,
@@ -144,10 +151,18 @@ function shellValue(value: unknown): string {
 }
 
 /** The identity an operation in the selected input mode needs, when only one kind of caller can run it. */
-function identityHint(op: CatalogOperation, mode: string | undefined): string | undefined {
+function identityHint(
+  op: CatalogOperation,
+  mode: string | undefined,
+  slack: boolean | undefined,
+): string | undefined {
   const flag = op.cli.modes?.find((item) => item.mode === mode)?.flag;
   const command = `\`board ${op.cli.command}${flag ? ` ${flag}` : ''}\``;
   if (!roleCanUseOperation(op, 'worker', mode) && !roleCanUseOperation(op, 'orchestrator', mode)) {
+    // Only a known no-Slack config drops the Slack token route.
+    if (slack === false) {
+      return `${command} needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or send that session the request with \`spur send <session id> "<request>"\`.`;
+    }
     return `${command} needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or run \`board token create --name <name> --into <folder>\` and ask the operator to approve the request in Slack.`;
   }
   if (!roleCanUseOperation(op, 'operator', mode)) {
@@ -164,6 +179,7 @@ function loadOperationConfig(
   try {
     return loadClientConfig(env);
   } catch (error) {
+    if (!(error instanceof CliError) || error.code !== 'identity_missing') throw error;
     const mode =
       typeof input === 'object' &&
       input !== null &&
@@ -171,10 +187,8 @@ function loadOperationConfig(
       typeof input.mode === 'string'
         ? input.mode
         : undefined;
-    const hint = identityHint(op, mode);
-    if (error instanceof CliError && error.code === 'identity_missing' && hint) {
-      throw new CliError(error.code, error.context, error.requestId, hint);
-    }
+    const hint = identityHint(op, mode, boardSlackState(env, homedir()));
+    if (hint) throw new CliError(error.code, error.context, error.requestId, hint);
     throw error;
   }
 }
@@ -222,6 +236,48 @@ function formatHuman(value: unknown, indent = 0): string {
       .join('\n');
   }
   return `${prefix}${escapeTerminalControls(String(value))}`;
+}
+
+/** The value at `path` of a JSON result, or undefined when the path does not reach one. */
+function valueAt(value: unknown, path: readonly string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
+ * The result without the entries of the array at `path` whose `field` is false, keys in place.
+ * A path that does not reach an array leaves the result as it is.
+ */
+function withoutEntries(value: unknown, path: readonly string[], field: string): unknown {
+  const [key, ...rest] = path;
+  if (key === undefined)
+    return Array.isArray(value)
+      ? value.filter(
+          (entry: unknown) =>
+            !(
+              entry &&
+              typeof entry === 'object' &&
+              (entry as Record<string, unknown>)[field] === false
+            ),
+        )
+      : value;
+  if (value === null || typeof value !== 'object' || Array.isArray(value) || !(key in value))
+    return value;
+  const object = value as Record<string, unknown>;
+  return { ...object, [key]: withoutEntries(object[key], rest, field) };
+}
+
+/** Terminal output shaped by a catalog `cli.view`: the lead line, then the result. */
+export function formatView(result: unknown, view: CliView, all: boolean): string {
+  const lead = valueAt(result, view.lead.path);
+  const body = formatHuman(all ? result : withoutEntries(result, view.hide.path, view.hide.field));
+  return typeof lead === 'string'
+    ? `${escapeTerminalControls(view.lead.label)}: ${escapeTerminalControls(lead)}\n${body}`
+    : body;
 }
 
 function commandFor(root: CommandUnknownOpts, path: string): CommandUnknownOpts {
@@ -282,6 +338,8 @@ function registerOptions(command: CommandUnknownOpts, op: CatalogOperation): voi
       command.option(`${mode.flag} ${value}`, description);
     }
   }
+  if (op.cli.view !== undefined)
+    command.option(op.cli.view.hide.flag, op.cli.view.hide.description);
   if (op.kind === 'mutation') command.option('--key <key>', 'Idempotency key for this action.');
   command.option('--json', 'Print JSON output or a JSON error.');
 }
@@ -510,6 +568,16 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const invoked = parts.at(-1) as CommandUnknownOpts;
       const json = Boolean(invoked.opts()['json'] || program.opts()['json']);
       const input = buildInput(op, parts.slice(0, -1), invoked.opts());
+      const view = op.cli.view;
+      const viewOn = view !== undefined && (input as Record<string, unknown>)[view.when] === true;
+      const all = view !== undefined && invoked.opts()[optionField(view.hide.flag)] === true;
+      if (view !== undefined && all && !viewOn)
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          `${view.hide.flag} needs ${optionName(view.when)}.`,
+        );
       const keyOption = invoked.opts()['key'];
       if (
         op.explicitKeyModes?.includes((input as Record<string, string>)['mode'] ?? '') &&
@@ -580,7 +648,15 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       try {
         if ('error' in outcome) throw outcome.error;
         const result = outcome.value;
-        io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
+        io.stdout(
+          `${
+            json || !io.isTTY
+              ? JSON.stringify(result)
+              : view !== undefined && viewOn
+                ? formatView(result, view, all)
+                : formatHuman(result)
+          }\n`,
+        );
       } catch (error) {
         if (error instanceof CliError) {
           io.stderr(`${renderCliError(error, json, key)}\n`);

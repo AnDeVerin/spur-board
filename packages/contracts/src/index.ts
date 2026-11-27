@@ -94,6 +94,7 @@ export {
 export {
   GRANTS,
   type CliMode,
+  type CliView,
   type Grant,
   type GrantRule,
   type Operation,
