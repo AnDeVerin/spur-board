@@ -5,6 +5,7 @@ import {
   prFactsSchema,
   prSourceId,
   sessionFactsSchema,
+  SPUR_REQUEST_TIMEOUT,
   ticketFactsSchema,
   type ColumnId,
   type Config,
@@ -336,6 +337,9 @@ export async function reconcileItems(
       kind: 'board_observation',
       taskId: null,
       summary: `${source.source}: ${source.blind_message ?? source.blind_reason}`,
+      ...(source.source === 'spur' &&
+        source.blind_reason === 'stale' &&
+        source.failure_code === SPUR_REQUEST_TIMEOUT && { hashedSummary: SPUR_REQUEST_TIMEOUT }),
       factAt: source.observed_at,
       source: source.source,
       priority: source.blind_reason === 'auth' || source.blind_reason === 'config' ? 2 : 4,

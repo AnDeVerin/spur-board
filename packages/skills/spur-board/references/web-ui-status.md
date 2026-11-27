@@ -64,6 +64,10 @@ Opened from the bar or by `?open=services`, the left panel shows boxes from `sta
   and adds `Failure <code> · <message>` and a note that `ready-for-dev` is frozen. It has no
   status bar button.
 
+When Spur is stale after a request timeout, the Blind row and terminal `board status` show the
+request path, any transitions page number, the elapsed time and the timeout in milliseconds.
+The detail path appears as `sessions/<id>`. A complete poll clears the diagnostic.
+
 A box name adds `· <repo>` only when its group has two sources of that kind. A service button
 scrolls the panel to its service's failing box, else its degraded box, else its first box; among
 boxes in the same state it takes the one whose word the button shows, the source the daemon

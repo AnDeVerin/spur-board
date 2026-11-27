@@ -112,15 +112,6 @@ const escape = () => {
     );
   });
 };
-const statusCalls = (d: Daemon) => {
-  const calls = { count: 0 };
-  const route = d.routes['status.get'];
-  d.routes['status.get'] = (input) => {
-    calls.count += 1;
-    return route(input);
-  };
-  return calls;
-};
 /** Row text as [key, value], read from a rendered box; a Meter reads as its value text. */
 const rowsOf = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>(':scope > div > div')].slice(1).map((row) => {
@@ -246,25 +237,29 @@ describe('status bar', () => {
     await settle();
     const node = barButton('spur');
     expect(node.getAttribute('aria-label')).toBe('spur: polling');
-    d.routes['status.get'] = () => Promise.resolve(envelope(spurBlind()));
+    const message = 'sessions/<id> timed out after 5130 ms (timeout 5000 ms)';
+    d.routes['status.get'] = () => Promise.resolve(envelope(spurBlind(message)));
     d.send('event: status\ndata: {}\n\n');
     await settle();
     expect(barButton('spur')).toBe(node);
     expect(node.getAttribute('aria-label')).toBe('spur: blind: stale');
+    press(node);
+    await settle();
+    expect(rowsOf(box('spur'))).toContainEqual(['Blind', `stale · ${message}`]);
   });
 
   it('reads no status beyond the stream', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     const d = daemon();
-    const calls = statusCalls(d);
+    const calls = vi.spyOn(d.routes, 'status.get');
     mount(d);
     d.send(hello);
     await settle();
-    const before = calls.count;
+    const before = calls.mock.calls.length;
     expect(before).toBeGreaterThan(0);
     await act(() => vi.advanceTimersByTimeAsync(120_000));
     await settle();
-    expect(calls.count).toBe(before);
+    expect(calls).toHaveBeenCalledTimes(before);
   });
 
   it('opens from the bar and returns focus', async () => {

@@ -2,6 +2,7 @@
 // the state of its source: the last complete observation, blindness and gone entities.
 import {
   AdapterError,
+  SPUR_REQUEST_TIMEOUT,
   batchSchema,
   err,
   ok,
@@ -235,23 +236,30 @@ function runSource(
 
   function state(): SourceState {
     const deadline = staleDeadline(lastCompleteMs, runnerStartMs, staleMultiplier, intervalMs);
-    const blind = errorBlind ?? (now() > deadline ? staleBlind : undefined);
+    let blind = errorBlind ?? (now() > deadline ? staleBlind : undefined);
+    let failure = errorFailure;
+    if (failure?.code === SPUR_REQUEST_TIMEOUT) {
+      if (blind?.reason === 'stale') blind = { reason: 'stale', message: failure.message };
+      else failure = undefined;
+    }
     return {
       ...(lastCompleteMs === undefined ? {} : { lastCompleteAt: iso(lastCompleteMs) }),
       ...(blind === undefined ? {} : { blind }),
-      ...(errorFailure === undefined ? {} : { failure: errorFailure }),
+      ...(failure === undefined ? {} : { failure }),
       gone,
     };
   }
 
-  /** The failure a failed poll reports: the error's code or the entry's default, else none. */
+  /** The diagnostic a failed poll can report: a Spur timeout or a mirror failure. */
   function failureOf(error: unknown, step: PollFailure['step']): SourceState['failure'] {
-    const coded = error instanceof AdapterError ? error.code : undefined;
-    const code = coded ?? entry.defaultFailureCode;
+    const adapterError = error instanceof AdapterError ? error : undefined;
+    if (source === 'spur' && step === 'poll' && adapterError?.sourceFailure !== undefined)
+      return adapterError.sourceFailure;
+    const code = adapterError?.code ?? entry.defaultFailureCode;
     if (code === undefined) return undefined;
     return {
       code,
-      message: error instanceof AdapterError ? error.message : `The ${step} step failed`,
+      message: adapterError?.message ?? `The ${step} step failed`,
     };
   }
 

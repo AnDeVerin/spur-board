@@ -501,20 +501,21 @@ export const polled = (name: string, extra: Record<string, unknown> = {}) =>
   source(name, { observedAt: T, lastCompleteAt: T, healthySince: T, ...extra });
 export const PR = 'github:a:ex/repo';
 export const ISSUES = 'github-issues:a:ex/repo';
-const SPUR_BLIND = polled('spur', {
-  blindReason: 'stale',
-  message: 'Spur has not answered',
-  stale: true,
-  healthySince: null,
-});
 export const SPUR_DOWN_LINE = 'Spur is unavailable: no answer for 40 minutes';
 /** Spur blind stale, with its services row failing and the Spur availability line set. */
-export const spurBlind = () =>
-  status(undefined, [polled(PR), SPUR_BLIND], {
-    services: [...HEALTHY.filter((row) => row.service !== 'spur'), service('spur', 'failing')],
-    transport: [SLACK_UP],
-    spurUnavailable: SPUR_DOWN_LINE,
-  });
+export const spurBlind = (message = 'Spur has not answered') =>
+  status(
+    undefined,
+    [
+      polled(PR),
+      polled('spur', { blindReason: 'stale', message, stale: true, healthySince: null }),
+    ],
+    {
+      services: [...HEALTHY.filter((row) => row.service !== 'spur'), service('spur', 'failing')],
+      transport: [SLACK_UP],
+      spurUnavailable: SPUR_DOWN_LINE,
+    },
+  );
 export const healthy = () =>
   status(undefined, [polled(PR), polled(ISSUES), polled('spur')], {
     services: HEALTHY,
