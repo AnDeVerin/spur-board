@@ -1028,7 +1028,10 @@ export async function reconcileItems(
       continue;
     if (flag.kind === 'worker_idle' && task.tracker_kind === 'github-issues') {
       const merged = mergedSeenAt.get(task.id);
-      if (merged != null) {
+      if (
+        merged != null &&
+        now < Date.parse(merged) + 2 * config.adapters.githubIssues.intervalMs
+      ) {
         const project = config.projects.find((entry) => entry.id === task.project);
         const miss =
           project === undefined

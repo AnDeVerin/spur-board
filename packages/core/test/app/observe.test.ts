@@ -2891,8 +2891,8 @@ describe('anomaly blocks', () => {
     expect(await acceptance(8)).toEqual({ merged_seen_at: null });
   });
 
-  it.each(
-    (
+  it.each([
+    ...(
       [
         {
           scenario: 'fresh confirmed miss',
@@ -2935,33 +2935,81 @@ describe('anomaly blocks', () => {
           raises: false,
         },
       ] as const
-    ).flatMap((lookup) => [true, false].map((hasSnapshot) => ({ ...lookup, hasSnapshot }))),
-  )(
+    ).flatMap((lookup) =>
+      [true, false].map((hasSnapshot) => ({ ...lookup, hasSnapshot, shadow: false })),
+    ),
+    {
+      scenario: 'closed in-filter issue omitted in shadow mode',
+      status: null,
+      complete: true,
+      gone: false,
+      delay: 1_000,
+      raises: false,
+      hasSnapshot: true,
+      shadow: true,
+    } as const,
+  ])(
     'uses issue lookup results after a merge: $scenario, ticket snapshot $hasSnapshot',
-    async ({ status, complete, gone, delay, raises, hasSnapshot }) => {
-      const b = await board();
+    async ({ status, complete, gone, delay, raises, hasSnapshot, shadow }) => {
+      const b = await board(
+        shadow
+          ? configSchema.parse({
+              ...config,
+              projects: config.projects.map((project) => ({
+                ...project,
+                dispatcher: { ...project.dispatcher, mode: 'shadow' },
+              })),
+            })
+          : config,
+      );
       const idle = () =>
         b.store.db
           .selectFrom('operator_item')
           .select('cleared_at')
           .where('item_key', 'like', 'health:%:worker_idle')
           .execute();
-      if (hasSnapshot) await poll(b, source, [{ kind: 'ticket', facts: fact() }]);
+      if (shadow)
+        await b.store.db
+          .updateTable('task')
+          .set({ manual_include: 0 })
+          .where('id', '=', b.task.id)
+          .execute();
+      if (hasSnapshot)
+        await poll(b, source, [
+          {
+            kind: 'ticket',
+            facts: shadow ? { ...fact(), inFilter: true, status: 'closed' } : fact(),
+          },
+        ]);
       await spur(b, [session('worker-1', 'waiting')]);
       await prs(b, [pr(7, 'open')]);
       now += IDLE;
+      const deadline = now + 2 * b.config.adapters.githubIssues.intervalMs;
       await prs(b, [{ ...pr(7, 'merged'), mergedAt: iso(), updatedAt: iso() }]);
       expect(await idle()).toEqual([]);
 
       now += delay;
-      const ref = (await b.core.context(source)).observe.tickets[0];
-      if (ref === undefined) throw new Error('Missing linked issue request');
-      await b.core.observe(source, {
-        batch: { source, observedAt: iso(), complete, items: [], entities: [{ ref, status }] },
-        effectiveComplete: complete && gone,
-        state: { lastCompleteAt: iso(), gone: gone ? [ref] : [] },
-        outcomes: [{ ref, misses: gone ? 3 : 1, gone }],
-      });
+      const refs = (await b.core.context(source)).observe.tickets;
+      if (status === null) {
+        expect(refs).toEqual([]);
+        expect(
+          await b.store.db
+            .selectFrom('task')
+            .select('column')
+            .where('id', '=', b.task.id)
+            .executeTakeFirstOrThrow(),
+        ).not.toMatchObject({ column: 'done' });
+        await poll(b, source, []);
+      } else {
+        const ref = refs[0];
+        if (ref === undefined) throw new Error('Missing linked issue request');
+        await b.core.observe(source, {
+          batch: { source, observedAt: iso(), complete, items: [], entities: [{ ref, status }] },
+          effectiveComplete: complete && gone,
+          state: { lastCompleteAt: iso(), gone: gone ? [ref] : [] },
+          outcomes: [{ ref, misses: gone ? 3 : 1, gone }],
+        });
+      }
       expect(await idle()).toEqual(raises ? [{ cleared_at: null }] : []);
       expect(
         await b.store.db
@@ -2970,6 +3018,13 @@ describe('anomaly blocks', () => {
           .where('task_id', '=', b.task.id)
           .execute(),
       ).toHaveLength(hasSnapshot ? 1 : 0);
+
+      now = deadline - 1;
+      await tick(b);
+      expect(await idle()).toEqual(raises ? [{ cleared_at: null }] : []);
+      now = deadline;
+      await tick(b);
+      expect(await idle()).toEqual([{ cleared_at: null }]);
     },
   );
 
