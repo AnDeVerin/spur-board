@@ -2,7 +2,7 @@
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { HoverMenu, type HoverMenuItem } from '../src/ds/index.ts';
+import { HoverMenu, Modal, type HoverMenuItem } from '../src/ds/index.ts';
 
 // Open requests of a controlled HoverMenu: each request sets its own pin and focus intent, a
 // declined one leaves none behind, and dismissal reports through the current `onOpenChange`.
@@ -145,6 +145,39 @@ const focusOf = (): Focus | Element | null => {
 };
 
 describe('HoverMenu open requests', () => {
+  it('reports each hover entry once after a Modal portal unmounts', () => {
+    act(() => {
+      root.render(
+        createElement(Modal, {
+          open: true,
+          onClose: () => undefined,
+          title: 'Settings',
+          children: 'Preferences',
+        }),
+      );
+    });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    declines = 2;
+    render();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+
+    const button = triggerOf('First');
+    const icon = button.querySelector('svg');
+    if (!icon) throw new Error('no trigger icon');
+    const openRequest = { menu: 'First', next: true, from: version, rendered: version };
+
+    move(document.body, button);
+    expect(reports).toEqual([openRequest]);
+    expect(firstMenu()).toBeNull();
+    move(button, icon);
+    expect(reports).toEqual([openRequest]);
+    move(icon, document.body);
+    expect(reports).toEqual([openRequest]);
+    move(document.body, icon);
+    expect(reports).toEqual([openRequest, openRequest]);
+    expect(firstMenu()).toBeNull();
+  });
+
   it.each([
     { path: 'a hover opens without focus', run: ['hover'], open: true, focus: 'body' },
     {
