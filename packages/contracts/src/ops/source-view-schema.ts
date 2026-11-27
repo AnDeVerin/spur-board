@@ -20,7 +20,7 @@ export const defaultBranchViewSchema = z
     url: webUrl.nullable().describe('Web URL of the failing run, or null.'),
   })
   .describe(
-    'Colour of the newest commit with counted checks among the default-branch head and its seven nearest first parents. Red means a failed commit status or a latest push-triggered workflow check with a completed result other than success, neutral or skipped. Scheduled, manual and non-workflow checks are ignored, and branch protection is not read. Each settled read updates the colour used by the operator item. A poll without a settled result keeps the stored colour and operator item.',
+    'Colour of the newest commit with a commit status or push-triggered workflow among the default-branch head and its seven nearest first parents. A push suite counts before its check runs appear. Red means a failed commit status or a latest push-workflow check with a completed result other than success, neutral or skipped. Scheduled, manual and non-workflow checks are ignored, and branch protection is not read. A poll without a settled result keeps the stored colour and operator item.',
   );
 export type DefaultBranchView = z.output<typeof defaultBranchViewSchema>;
 

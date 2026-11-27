@@ -131,7 +131,7 @@ function aliases(numbers: readonly number[], fields: (number: number) => string)
 const discoveryStates = (bootstrap: boolean): string =>
   bootstrap ? 'OPEN' : 'OPEN, MERGED, CLOSED';
 const BRANCH_COMMIT_FIELDS =
-  'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } }';
+  'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } checkSuites(first: 100) { nodes { workflowRun { event } } pageInfo { hasNextPage } }';
 // Read the head and up to seven first parents within GitHub's query depth limit. First parents
 // follow the default branch through merges without considering checks from merged side branches.
 export const DEFAULT_BRANCH_READS = [

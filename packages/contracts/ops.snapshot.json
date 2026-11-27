@@ -1,5 +1,5 @@
 {
-  "version": "5fca3958fa2c1bc9058098396bb8ff027514cb92485e1ccea34efb47a6f12f7d",
+  "version": "29dfe9f393b51f6c09c8b65314e3900202eeea20afdeb15b74f96698a5bf3c06",
   "grants": [
     "operator",
     "project-agent",
@@ -1897,7 +1897,7 @@
                         "url"
                       ],
                       "additionalProperties": false,
-                      "description": "Colour of the newest commit with counted checks among the default-branch head and its seven nearest first parents. Red means a failed commit status or a latest push-triggered workflow check with a completed result other than success, neutral or skipped. Scheduled, manual and non-workflow checks are ignored, and branch protection is not read. Each settled read updates the colour used by the operator item. A poll without a settled result keeps the stored colour and operator item."
+                      "description": "Colour of the newest commit with a commit status or push-triggered workflow among the default-branch head and its seven nearest first parents. A push suite counts before its check runs appear. Red means a failed commit status or a latest push-workflow check with a completed result other than success, neutral or skipped. Scheduled, manual and non-workflow checks are ignored, and branch protection is not read. A poll without a settled result keeps the stored colour and operator item."
                     },
                     { "type": "null" }
                   ]

@@ -28,7 +28,33 @@ const config = configSchema.parse({
   github: { reserveRemaining: 0 },
 });
 
-it.each([
+type Fault =
+  'parentRollup' | 'tipParents' | 'firstParentParents' | 'tipRollup' | 'differentTip' | 'tipSuites';
+type TipChecks = 'queuedSuite' | 'scheduledSuite' | 'running' | 'red';
+
+it.each<{ name: string; checked: number; failure?: Fault; tip?: TipChecks; read?: boolean }>([
+  { name: 'walk past a release with no suite or checks', checked: 1, read: true },
+  { name: 'hold on a queued push suite with no check runs', checked: 1, tip: 'queuedSuite' },
+  {
+    name: 'walk past a release with only a scheduled suite',
+    checked: 1,
+    tip: 'scheduledSuite',
+    read: true,
+  },
+  { name: 'hold on a running push check', checked: 1, tip: 'running' },
+  { name: 'read a completed red push check', checked: 1, tip: 'red', read: true },
+  { name: 'read a completed green push check', checked: 0, read: true },
+  {
+    name: 'hold when the tip has no checks and its suite list is unreadable',
+    checked: 1,
+    failure: 'tipSuites',
+  },
+  {
+    name: 'read the tip when its checks settle and only the suite list is unreadable',
+    checked: 0,
+    failure: 'tipSuites',
+    read: true,
+  },
   {
     name: 'keep the tip after a rollup error on an older alias',
     checked: 0,
@@ -65,11 +91,28 @@ it.each([
     failure: 'differentTip',
     read: false,
   },
-] as const)('$name', async ({ checked, failure, read }) => {
+])('$name', async ({ checked, failure, tip, read }) => {
+  const suite = (event: string) => ({ workflowRun: { event } });
+  const connection = (nodes: unknown[]) => ({ nodes, pageInfo: { hasNextPage: false } });
+  const tipRuns = {
+    running: [{ ...check, status: 'IN_PROGRESS', conclusion: null, completedAt: null }],
+    red: [{ ...check, conclusion: 'FAILURE' }],
+    queuedSuite: [],
+    scheduledSuite: [],
+  };
   const commit = (index: number) => ({
     oid: shas[index],
+    checkSuites: connection(
+      index === 0 && tip !== undefined
+        ? [suite(tip === 'scheduledSuite' ? 'schedule' : 'push')]
+        : index === checked
+          ? [suite('push')]
+          : [],
+    ),
     statusCheckRollup: {
-      contexts: { nodes: index === checked ? [check] : [], pageInfo: { hasNextPage: false } },
+      contexts: connection(
+        index === 0 && tip !== undefined ? tipRuns[tip] : index === checked ? [check] : [],
+      ),
     },
   });
   const target = { __typename: 'Commit', ...commit(0) };
@@ -82,6 +125,10 @@ it.each([
         defaultBranchRef: { name: branch, target: { ...target, statusCheckRollup: null } },
       },
       path: ['defaultBranchRef', 'target', 'statusCheckRollup'],
+    },
+    tipSuites: {
+      fields: { defaultBranchRef: { name: branch, target: { ...target, checkSuites: null } } },
+      path: ['defaultBranchRef', 'target', 'checkSuites'],
     },
     parentRollup: {
       fields: { defaultBranchParent1: ancestor([{ ...commit(1), statusCheckRollup: null }]) },
@@ -100,7 +147,7 @@ it.each([
       path: [],
     },
   };
-  const { fields, path } = responses[failure];
+  const { fields, path } = failure === undefined ? { fields: {}, path: [] } : responses[failure];
   const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
     Response.json({
       data: {
@@ -126,7 +173,9 @@ it.each([
     signal: new AbortController().signal,
   });
   expect(batch.complete).toBe(true);
-  expect(batch.defaultBranch).toEqual(
-    read ? { state: 'green', branch, sha: shas[checked] } : undefined,
-  );
+  const expected =
+    tip === 'red'
+      ? { state: 'red', branch, sha: shas[0], check: 'ci-ok', url: null }
+      : { state: 'green', branch, sha: shas[checked] };
+  expect(batch.defaultBranch).toEqual(read === true ? expected : undefined);
 });

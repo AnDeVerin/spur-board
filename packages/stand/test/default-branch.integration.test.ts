@@ -38,6 +38,7 @@ function commit(sample: Sample) {
   return {
     __typename: 'Commit',
     oid,
+    checkSuites: { nodes: [{ workflowRun: { event } }], pageInfo: { hasNextPage: false } },
     statusCheckRollup: {
       contexts: {
         nodes: [

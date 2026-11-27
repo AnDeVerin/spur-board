@@ -153,6 +153,7 @@ const defaultBranchCommit = {
 /**
  * The colour of the newest checked commit in the default-branch read. Push workflow checks and
  * commit statuses count; scheduled and other runs, and check runs outside workflows, never do.
+ * A push workflow suite with no check runs holds the read on that commit without a verdict.
  */
 export const defaultBranchFactSchema = z
   .discriminatedUnion('state', [

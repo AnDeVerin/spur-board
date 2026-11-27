@@ -33,7 +33,7 @@ const REVIEWER = 'stand-reviewer';
 const BOT = 'stand-bot';
 interface BranchCommit {
   sha: string;
-  contexts: Wire[];
+  contexts: (WireObject & { checkSuite: WireObject })[];
 }
 
 function page(connection: string, items: readonly Wire[], args: Args): WireObject {
@@ -359,6 +359,12 @@ export function createGithubPrFake(options: {
         commit.contexts.length === 0
           ? null
           : { contexts: (args: Args) => page('contexts', commit.contexts, args) },
+      checkSuites: (args: Args) =>
+        page(
+          'checkSuites',
+          commit.contexts.map(({ checkSuite }) => checkSuite),
+          args,
+        ),
       parents: () => {
         const parent = branchCommitView(commits, index + 1);
         return { nodes: parent === null ? [] : [parent] };
@@ -412,7 +418,7 @@ export function createGithubPrFake(options: {
     const sha = createHash('sha1')
       .update(`${repo.toLowerCase()}:${String(heads)}`)
       .digest('hex');
-    const run = (name: string, conclusion: string, event: string): Wire => ({
+    const run = (name: string, conclusion: string, event: string) => ({
       __typename: 'CheckRun',
       name,
       status: 'COMPLETED',

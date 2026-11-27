@@ -109,6 +109,7 @@ const branchContextWire = z.discriminatedUnion('__typename', [
 type BranchContext = z.output<typeof branchContextWire>;
 const branchCommitWire = z.object({
   oid: z.string(),
+  checkSuites: z.unknown().optional(),
   statusCheckRollup: z
     .object({
       contexts: z.object({
@@ -117,6 +118,10 @@ const branchCommitWire = z.object({
       }),
     })
     .nullable(),
+});
+const branchSuitesWire = z.object({
+  nodes: z.array(z.object({ workflowRun: z.object({ event: z.string() }).nullable() })),
+  pageInfo: z.object({ hasNextPage: z.boolean() }),
 });
 const branchParentsWire = z.object({ parents: z.object({ nodes: z.tuple([z.unknown()]) }) });
 const parentRefWire = z.object({ target: z.looseObject({ oid: z.string() }) });
@@ -149,10 +154,19 @@ function readBranchParent(reference: unknown, tip: string, depth: number): unkno
   return commit;
 }
 
+function hasNoPushSuite(wire: unknown): boolean {
+  const suites = branchSuitesWire.safeParse(wire).data;
+  return (
+    suites !== undefined &&
+    !suites.pageInfo.hasNextPage &&
+    suites.nodes.every((suite) => suite.workflowRun?.event !== 'push')
+  );
+}
+
 /**
  * The colour of the newest checked commit in the default branch's first-parent window. Walk
- * past a commit only when it has no counted checks. Without a visible failure, a running or
- * incompletely read commit leaves the colour unknown.
+ * past a commit only when it has no counted checks or push suites. A push suite can precede
+ * its first check run. Without a visible failure, an unsettled commit leaves the colour unknown.
  */
 export function defaultBranchFact(
   repository: unknown,
@@ -162,15 +176,18 @@ export function defaultBranchFact(
   if (!parsed.success) return undefined;
   const { name: branch, target } = parsed.data.defaultBranchRef;
   for (const [depth, alias] of DEFAULT_BRANCH_READS.entries()) {
-    if (errors.some((error) => error.path?.[1] === alias)) return undefined;
+    const readErrors = errors.filter((error) => error.path?.[1] === alias);
+    // A nullable suite read can fail independently of a complete check result.
+    if (readErrors.some((error) => !error.path?.includes('checkSuites'))) return undefined;
     const commit = depth === 0 ? target : readBranchParent(parsed.data[alias], target.oid, depth);
     const result = branchCommitWire.safeParse(commit);
     if (!result.success) return undefined;
-    const { oid, statusCheckRollup } = result.data;
+    const { oid, statusCheckRollup, checkSuites } = result.data;
     const contexts = statusCheckRollup?.contexts;
     const kept = contexts?.nodes.filter(counted) ?? [];
     const truncated = contexts?.pageInfo.hasNextPage ?? false;
     if (kept.length > 0 || truncated) return branchColour(branch, oid, kept, truncated);
+    if (readErrors.length > 0 || !hasNoPushSuite(checkSuites)) return undefined;
   }
   return undefined;
 }

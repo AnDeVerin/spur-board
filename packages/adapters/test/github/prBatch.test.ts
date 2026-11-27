@@ -270,7 +270,7 @@ describe('GitHub PR batch', () => {
   it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      'f06184e198bbd46225bd3385bed0e40e08d7576a9799be044662b7730db1c5e3',
+      '8d22a363c988477c78afcbc2edc4c8554bb03aea43190ae7a5bf43b3d8056200',
     );
     expect(query).toContain('rateLimit { cost limit remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
@@ -282,7 +282,7 @@ describe('GitHub PR batch', () => {
     expect(details).toContain('pr0: repository');
     const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '41f7203df8ba99634d1d3cc1e94fedc348618799c19633671b354d463bc81240',
+      '651dfd4bfc5b08d819bc3972f43e5843a235919e42b71ef434c3427ef4c85fb4',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(bootstrapQuery).toContain(

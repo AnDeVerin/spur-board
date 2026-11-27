@@ -26,7 +26,7 @@ const SUITES =
 const prAlias = (closing: boolean): string =>
   `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} }${SUITES} } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const BRANCH_COMMIT =
-  'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } }';
+  'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } checkSuites(first: 100) { nodes { workflowRun { event } } pageInfo { hasNextPage } }';
 const DEFAULT_BRANCH_HEAD = `defaultBranchRef { name target { __typename ... on Commit { ${BRANCH_COMMIT} } } }`;
 const DEFAULT_BRANCH_ANCESTORS = Array.from(
   { length: 7 },
