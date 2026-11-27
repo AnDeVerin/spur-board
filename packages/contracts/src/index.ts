@@ -172,6 +172,7 @@ export {
   MIRROR_FAILURES,
   POLL_PR_ERROR_KINDS,
   READINESS_STATES,
+  SPUR_REQUEST_TIMEOUT,
   batchItemSchema,
   batchSchema,
   defaultBranchFactSchema,

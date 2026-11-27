@@ -23,17 +23,17 @@
   its own timers: 15 s for each `sessions/transitions` page, 5 s for `sessions` and
   `sessions/<id>`.
 - A failed Spur request throws `SpurRequestError` (`packages/adapters/src/spur/spur.ts`) with
-  `path` (no query), `page` (transitions only) and `durationMs`, never `code`. A successful Spur
-  request slower than half its timeout calls `warn`.
+  `path` (no query), `page` (transitions only) and `durationMs` for logging. Only Spur's request
+  timer adds `SPUR_REQUEST_TIMEOUT` and a separate operator message with a static path, elapsed
+  time and limit. A successful Spur request slower than half its timeout calls `warn`.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
-- A source whose failure reaches the operator by code throws `AdapterError` with `code` from
-  `MIRROR_FAILURE_CODES` (`packages/contracts/src/adapters.ts`); `kind` still drives backoff.
-- Give such a source's runner entry `defaultFailureCode` (`startAdapters` in
-  `packages/adapters/src/index.ts`): an uncoded error or invalid batch then reports that code.
-  An entry without it reports a failure only for a coded error.
-- The runner puts the code and message in `SourceState.failure` and clears it after a delivered
-  batch; core stores it in `source_state`. Never infer the code from the message.
+- GitHub Project mirrors throw `AdapterError` with a code from `MIRROR_FAILURE_CODES`
+  (`packages/contracts/src/adapters.ts`). Their runner entry's `defaultFailureCode`
+  (`startAdapters` in `packages/adapters/src/index.ts`) covers uncoded errors and invalid batches.
+- The runner puts mirror failures and the latest Spur timeout while stale in `SourceState.failure`.
+  Core stores it in `source_state`. A delivered batch clears the failure. Use `kind` for backoff
+  and read the failure code directly.
 - Runner coverage: `describe('batch validation')`, `describe('failures')`, `describe('retry')`,
   `describe('http failure classification')`, `describe('budget')`,
   `describe('auth and config errors')` and `describe('failure log')` in

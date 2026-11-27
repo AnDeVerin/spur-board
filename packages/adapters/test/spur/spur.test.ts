@@ -1,4 +1,9 @@
-import { AdapterError, batchSchema, type PollContext } from '@spur-board/contracts';
+import {
+  AdapterError,
+  batchSchema,
+  sourceCursorSchema,
+  type PollContext,
+} from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startRunner, type AdapterRunner, type PollFailure } from '../../src/runner/runner.ts';
 import {
@@ -684,17 +689,33 @@ describe('Spur adapter', () => {
     const timedOutTransitions = {
       kind: 'transient',
       message: 'Spur request timed out on sessions/transitions page 1 after 15000 ms',
+      sourceFailure: {
+        code: 'spur_request_timeout',
+        message: 'sessions/transitions page 1 timed out after 15000 ms (timeout 15000 ms)',
+      },
       path: 'sessions/transitions',
       page: 1,
       durationMs: 15_000,
     };
 
     it('times out a transitions page after 15 seconds while waiting for headers', async () => {
-      const poll = routed(hang).poll(context());
+      const poll = routed(hang).poll({
+        ...context(),
+        cursor: sourceCursorSchema.parse('private-cursor'),
+      });
       const state = settledFlag(poll);
-      const assertion = expect(poll).rejects.toMatchObject(timedOutTransitions);
+      const assertion = expect(poll).rejects.toMatchObject({
+        ...timedOutTransitions,
+        message: 'Spur request timed out on sessions/transitions page 1 after 15400 ms',
+        sourceFailure: {
+          code: 'spur_request_timeout',
+          message: 'sessions/transitions page 1 timed out after 15400 ms (timeout 15000 ms)',
+        },
+        durationMs: 15_400,
+      });
       await vi.advanceTimersByTimeAsync(14_999);
       expect(state.settled).toBe(false);
+      vi.setSystemTime(Date.now() + 400);
       await vi.advanceTimersByTimeAsync(1);
       await assertion;
       await expect(poll).rejects.not.toHaveProperty('code', expect.anything());
@@ -725,6 +746,7 @@ describe('Spur adapter', () => {
         durationMs: 0,
       });
       await expect(poll).rejects.toBeInstanceOf(AdapterError);
+      await expect(poll).rejects.not.toHaveProperty('sourceFailure', expect.anything());
     });
 
     it('names the transitions page of an invalid JSON response', async () => {
@@ -735,6 +757,7 @@ describe('Spur adapter', () => {
         path: 'sessions/transitions',
         page: 1,
       });
+      await expect(poll).rejects.not.toHaveProperty('sourceFailure', expect.anything());
     });
 
     it('times out a session detail read after five seconds without a page', async () => {
@@ -746,6 +769,10 @@ describe('Spur adapter', () => {
       const assertion = expect(poll).rejects.toMatchObject({
         kind: 'transient',
         message: 'Spur request timed out on sessions/ghost-1 after 5000 ms',
+        sourceFailure: {
+          code: 'spur_request_timeout',
+          message: 'sessions/<id> timed out after 5000 ms (timeout 5000 ms)',
+        },
         path: 'sessions/ghost-1',
         durationMs: 5_000,
       });

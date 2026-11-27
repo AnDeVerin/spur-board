@@ -4,6 +4,7 @@ import {
   apiBaseUrl,
   SESSION_HEALTH_STATES,
   SESSION_STATUSES,
+  SPUR_REQUEST_TIMEOUT,
   parseRingMarker,
   prRefSchema,
   sessionFactsSchema,
@@ -33,10 +34,7 @@ interface SpurRequestPlace {
   durationMs: number;
 }
 
-/**
- * A failed Spur request with its place. It never carries `code`: the runner would report it as a
- * source failure.
- */
+/** A failed Spur request with its place for logging. */
 class SpurRequestError extends AdapterError {
   readonly path: string;
   declare readonly page?: number;
@@ -46,7 +44,7 @@ class SpurRequestError extends AdapterError {
     kind: AdapterError['kind'],
     base: string,
     place: SpurRequestPlace,
-    options: { retryAt?: Date | undefined; cause?: unknown } = {},
+    options: ConstructorParameters<typeof AdapterError>[2] = {},
   ) {
     super(kind, `${base} on ${describePlace(place)} after ${String(place.durationMs)} ms`, options);
     this.path = place.path;
@@ -199,10 +197,23 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       return { response, body, place: done };
     } catch (error) {
       if (callerAborted()) throw new Error('Spur poll aborted', { cause: error });
-      if (didTimeOut())
-        throw new SpurRequestError('transient', 'Spur request timed out', place(), {
+      if (didTimeOut()) {
+        const timedOutAt = place();
+        const safePath =
+          page !== undefined
+            ? 'sessions/transitions'
+            : path === 'sessions'
+              ? path
+              : 'sessions/<id>';
+        const route = describePlace({ path: safePath, page });
+        throw new SpurRequestError('transient', 'Spur request timed out', timedOutAt, {
           cause: error,
+          sourceFailure: {
+            code: SPUR_REQUEST_TIMEOUT,
+            message: `${route} timed out after ${String(timedOutAt.durationMs)} ms (timeout ${String(timeoutMs)} ms)`,
+          },
         });
+      }
       if (error instanceof AdapterError) throw error;
       throw new SpurRequestError('transient', 'Spur request failed', place(), { cause: error });
     } finally {

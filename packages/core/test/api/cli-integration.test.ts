@@ -8,12 +8,14 @@ import {
   errorEnvelopeSchema,
   roleCanUseOperation,
 } from '@spur-board/contracts';
+import { inboxOperatorOutputSchema, statusOutputSchema } from '@spur-board/contracts/browser';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
 import {
   createApiServer,
   createApply,
   createBlockMutations,
+  createObservationCore,
   createOperationRegistry,
   listenApiServer,
   openStore,
@@ -26,7 +28,8 @@ import { decideTokenInTransaction } from '../../src/app/tokens.ts';
 import { resolvedFeedBody } from '../../src/app/feed.ts';
 import type { FeedEditPayload } from '../../src/app/outbox.ts';
 import { sampleRows } from '../store/sample-rows.ts';
-import { SLACK_ON } from '../support/config.ts';
+import { SLACK_ON, slackOffConfig } from '../support/config.ts';
+import { openTempStore } from '../support/store.ts';
 
 function capture() {
   let stdout = '';
@@ -52,6 +55,116 @@ function capture() {
 }
 
 describe('CLI against the real HTTP API', () => {
+  it('shows the latest Spur timeout in status and keeps the operator item identity and dismissal', async () => {
+    const { store } = openTempStore('board-api-spur-timeout-');
+    let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
+    const config = slackOffConfig;
+    let now = Date.parse('2026-11-04T08:00:00.000Z');
+    const clock = { now: () => now };
+    const core = createObservationCore({ store, config, clock });
+    const complete = () => {
+      const at = new Date(now).toISOString();
+      return core.observe('spur', {
+        batch: { source: 'spur', observedAt: at, complete: true, items: [], entities: [] },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+    };
+    const timeout = async (
+      elapsed: number,
+      route = 'sessions/transitions page 1',
+      limit = 15_000,
+    ) => {
+      now += 60_000;
+      const message = `${route} timed out after ${String(elapsed)} ms (timeout ${String(limit)} ms)`;
+      await core.reportSourceState('spur', {
+        blind: { reason: 'stale', message },
+        failure: { code: 'spur_request_timeout', message },
+        gone: [],
+      });
+      return message;
+    };
+
+    try {
+      app = await createApiServer({
+        store,
+        config,
+        port: 0,
+        ready: () => true,
+        clock,
+        lookupSession: () => Promise.resolve(null),
+        verifyToken: (token) =>
+          Promise.resolve(token === 'local-test-token' ? { name: 'local' } : null),
+        registry: createOperationRegistry({ config, clock, completeSince: new Map() }),
+        logRequest: () => {},
+      });
+      await listenApiServer(app, 0);
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected a TCP port.');
+      const clientConfig = {
+        address: new URL(`http://127.0.0.1:${String(address.port)}`),
+        session: undefined,
+        token: 'local-test-token',
+        connectTimeoutMs: 2_000,
+        responseTimeoutMs: 2_000,
+      };
+      const call = async (args: string[], isTTY = false) => {
+        const output = capture();
+        output.io.isTTY = isTTY;
+        expect(await runCli(args, { clientConfig, io: output.io }), output.stderr).toBe(0);
+        return output.stdout;
+      };
+      const status = async () =>
+        statusOutputSchema
+          .parse(JSON.parse(await call(['status', '--json'])))
+          .sources.find((source) => source.source === 'spur');
+      const inbox = async () =>
+        inboxOperatorOutputSchema.parse(JSON.parse(await call(['inbox', 'operator', '--json'])));
+
+      const message = await timeout(15_128);
+      expect(await status()).toMatchObject({ blindReason: 'stale', message });
+      expect(await status()).not.toHaveProperty('failure');
+      expect(await call(['status'], true)).toContain(message);
+      const action = 'check tracked session count and host load';
+      const heading = 'Spur answered slower than the timeout';
+      const item = (await inbox()).items[0];
+      if (item === undefined) throw new Error('Expected a Spur source item.');
+      expect(item).toMatchObject({ text: `${heading} (${message}): ${action}`, action });
+
+      const updated = await timeout(15_259);
+      expect((await inbox()).items).toEqual([
+        { ...item, text: `${heading} (${updated}): ${action}` },
+      ]);
+      await call(['item', 'close', item.id, '--json']);
+      await timeout(5_320, 'sessions/<id>', 5_000);
+      expect((await inbox()).items).toEqual([]);
+
+      await complete();
+      expect(await status()).toMatchObject({ blindReason: null, message: null });
+      expect((await inbox()).items).toEqual([]);
+      await timeout(15_460);
+      expect((await inbox()).items).toEqual([]);
+
+      const generic = 'No complete observation in 3 poll intervals';
+      await core.reportSourceState('spur', {
+        blind: { reason: 'stale', message: generic },
+        gone: [],
+      });
+      const ordinary = (await inbox()).items[0];
+      expect(ordinary).toMatchObject({
+        text: `Spur unreachable (${generic}): check the Spur daemon`,
+        action: 'check the Spur daemon',
+      });
+      expect(ordinary?.id).not.toBe(item.id);
+      await complete();
+      expect((await inbox()).items).toEqual([]);
+    } finally {
+      await app?.close();
+      await store.close();
+    }
+  });
+
   it.each([
     { caller: 'the operator token', session: undefined, token: 'local-test-token', by: 'operator' },
     { caller: 'an operator-role session', session: 'op-1', token: undefined, by: 'agent:ops/op-1' },

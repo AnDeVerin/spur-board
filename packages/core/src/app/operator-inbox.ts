@@ -1,4 +1,9 @@
-import { RESERVED_PROJECT, type Config, type Via } from '@spur-board/contracts';
+import {
+  RESERVED_PROJECT,
+  SPUR_REQUEST_TIMEOUT,
+  type Config,
+  type Via,
+} from '@spur-board/contracts';
 import { z } from 'zod';
 import {
   BLOCK_KEY,
@@ -35,7 +40,10 @@ const HANDLED_MAX = 20;
 
 type Item = Row<'operator_item'>;
 type Owner = Pick<Row<'task'>, 'key' | 'project' | 'membership'>;
-type SourceState = Pick<Row<'source_state'>, 'source' | 'blind_reason' | 'blind_message'>;
+type SourceState = Pick<
+  Row<'source_state'>,
+  'source' | 'blind_reason' | 'blind_message' | 'failure_code'
+>;
 /** The task columns each read joins in, null when the row has no task. */
 interface Joined {
   task_key: string | null;
@@ -236,14 +244,18 @@ function sourceText(
   const reason = state?.blind_reason ?? null;
   const service = serviceOf(source);
   if (item.cleared_at !== null || reason === null || service === undefined) return stored;
-  const problem = PROBLEMS[reason];
+  const spurTimedOut =
+    reason === 'stale' && source === 'spur' && state?.failure_code === SPUR_REQUEST_TIMEOUT;
+  const problem = spurTimedOut ? 'answered slower than the timeout' : PROBLEMS[reason];
   const thing =
     reason === 'auth'
       ? `the ${service} token`
       : reason === 'config'
         ? `the ${source} settings in the board config`
         : reason === 'stale' && source === 'spur'
-          ? 'the Spur daemon'
+          ? spurTimedOut
+            ? 'tracked session count and host load'
+            : 'the Spur daemon'
           : undefined;
   if (problem === undefined || thing === undefined) return stored;
   const message = state?.blind_message ?? null;
@@ -376,7 +388,7 @@ export function createOperatorInbox(deps: {
             ? Promise.resolve([])
             : trx
                 .selectFrom('source_state')
-                .select(['source', 'blind_reason', 'blind_message'])
+                .select(['source', 'blind_reason', 'blind_message', 'failure_code'])
                 .where('source', 'in', sourceIds)
                 .execute(),
           deliveryUrls(trx, items),

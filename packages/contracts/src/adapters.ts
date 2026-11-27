@@ -505,13 +505,16 @@ export interface Adapter {
   ): Promise<Batch>;
 }
 
+export const SPUR_REQUEST_TIMEOUT = 'spur_request_timeout';
+type SpurRequestTimeout = { code: typeof SPUR_REQUEST_TIMEOUT; message: string };
+
 /** State accepted with a batch; a separate report handles failures without a batch. */
 export interface SourceState {
   /** Poll-start time of the last effectively complete batch. */
   lastCompleteAt?: string | undefined;
   blind?: { reason: 'auth' | 'config' | 'stale'; message: string } | undefined;
-  /** Why the last poll of a github-project source failed; absent after a delivered batch. */
-  failure?: { code: MirrorFailureCode; message: string } | undefined;
+  /** The last GitHub Project poll failure, or a request timeout while Spur is stale. */
+  failure?: { code: MirrorFailureCode; message: string } | SpurRequestTimeout | undefined;
   gone: readonly EntityRef[];
 }
 
@@ -543,18 +546,26 @@ export class AdapterError extends Error {
   readonly retryAt?: Date | undefined;
   /** The mirror failure code a github-project source reports with this failure. */
   readonly code?: MirrorFailureCode | undefined;
+  /** Operator-facing detail for a timed-out Spur request. */
+  readonly sourceFailure?: SpurRequestTimeout | undefined;
   usage?: Batch['usage'];
 
   constructor(
     kind: AdapterErrorKind,
     message: string,
-    options: { retryAt?: Date | undefined; cause?: unknown; code?: MirrorFailureCode } = {},
+    options: {
+      retryAt?: Date | undefined;
+      cause?: unknown;
+      code?: MirrorFailureCode;
+      sourceFailure?: SpurRequestTimeout;
+    } = {},
   ) {
     super(message, 'cause' in options ? { cause: options.cause } : undefined);
     this.name = 'AdapterError';
     this.kind = kind;
     this.retryAt = options.retryAt;
     this.code = options.code;
+    this.sourceFailure = options.sourceFailure;
   }
 }
 

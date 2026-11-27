@@ -352,31 +352,60 @@ describe('startAdapters', () => {
       ]);
     });
 
-    it('turns Spur stale while transitions time out and recovers within one cap', async () => {
-      random(0);
-      let hanging = true;
-      const core = createFakeCore();
-      const fetcher: typeof fetch = (input, init) => {
-        const url = new URL(input instanceof Request ? input.url : input);
-        if (url.pathname === '/sessions/transitions')
-          return hanging ? hangRequest(init) : Promise.resolve(emptyPage());
-        return Promise.resolve(Response.json([]));
-      };
-      const runner = entry.startAdapters(jiraProjectConfig(), core, {
-        now: () => Date.now(),
-        fetch: fetcher,
-      });
-      runners.push(runner);
-      const spurStates = () => core.states.filter((s) => s.source === 'spur');
+    it.each(['refusal', 'invalid response'] as const)(
+      'shows a settled Spur timeout while stale, falls back for %s, and clears on recovery',
+      async (otherFailure) => {
+        random(0);
+        let result: 'timeout' | typeof otherFailure | 'complete' = 'timeout';
+        const core = createFakeCore();
+        const fetcher: typeof fetch = (input, init) => {
+          const url = new URL(input instanceof Request ? input.url : input);
+          if (url.pathname === '/sessions/transitions') {
+            if (result === 'timeout') return hangRequest(init);
+            if (result === 'refusal') return Promise.reject(new Error('ECONNREFUSED'));
+            if (result === 'invalid response') return Promise.resolve(Response.json({}));
+            return Promise.resolve(emptyPage());
+          }
+          return Promise.resolve(Response.json([]));
+        };
+        const runner = entry.startAdapters(jiraProjectConfig(), core, {
+          now: () => Date.now(),
+          fetch: fetcher,
+        });
+        runners.push(runner);
+        const spurStates = () => core.states.filter((s) => s.source === 'spur');
 
-      await advanceTo(59_999);
-      expect(spurStates().some((s) => s.state.blind?.reason === 'stale')).toBe(false);
-      await advanceTo(60_000);
-      expect(spurStates().at(-1)?.state.blind?.reason).toBe('stale');
-      hanging = false;
-      await advanceTo(120_001);
-      expect(spurStates().at(-1)?.state.blind).toBeUndefined();
-    });
+        await advanceTo(59_999);
+        expect(spurStates().some((s) => s.state.blind?.reason === 'stale')).toBe(false);
+        expect(spurStates().every((s) => s.state.failure === undefined)).toBe(true);
+        await advanceTo(60_000);
+        const message = 'sessions/transitions page 1 timed out after 15000 ms (timeout 15000 ms)';
+        const timeout = {
+          blind: { reason: 'stale', message },
+          failure: { code: 'spur_request_timeout', message },
+        };
+        expect(spurStates().at(-1)?.state).toMatchObject(timeout);
+
+        result = otherFailure;
+        await advanceTo(120_000);
+        expect(spurStates().at(-1)?.state.blind).toEqual({
+          reason: 'stale',
+          message: 'No complete observation in 3 poll intervals',
+        });
+        expect(spurStates().at(-1)?.state.failure).toBeUndefined();
+
+        result = 'timeout';
+        await advanceTo(194_999);
+        expect(spurStates().at(-1)?.state.failure).toBeUndefined();
+        await advanceTo(195_000);
+        expect(spurStates().at(-1)?.state).toMatchObject(timeout);
+
+        result = 'complete';
+        await advanceTo(255_000);
+        expect(spurStates().at(-1)?.state.blind).toBeUndefined();
+        expect(spurStates().at(-1)?.state.failure).toBeUndefined();
+      },
+    );
   });
 
   it('waits for an outstanding Spur notice before stop completes', async () => {
