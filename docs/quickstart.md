@@ -36,12 +36,25 @@ later.
 
 ### On Ubuntu or Debian
 
-Ubuntu 24.04 ships Node 18 in its default apt repository. Select the latest 24.x release, which
-includes npm, on the [Node.js download page](https://nodejs.org/en/download).
+Ubuntu 24.04 ships Node 18 in its default apt repository. Install Node 24 and npm system-wide
+with the [NodeSource 24.x setup script](https://github.com/nodesource/distributions/blob/master/scripts/deb/setup_24.x).
+Spur's systemd user services run `/usr/bin/node` directly.
 
-Install Node 24 system-wide so both your shell and `/usr/bin/node` use it. Spur's systemd user
-services run `/usr/bin/node` directly. If an older system package already owns that path, use a
-Node 24 package source that upgrades the system package in place.
+```sh
+sudo apt update
+sudo apt install -y ca-certificates curl
+curl -fsSL https://deb.nodesource.com/setup_24.x -o nodesource_setup.sh
+sudo -E bash nodesource_setup.sh
+sudo apt install -y nodejs
+command -v node
+node -v
+/usr/bin/node -v
+npm -v
+```
+
+Both Node version commands should report 24.12.0 or later in the 24.x series. If `node -v` reports
+an older version, use the path printed by `command -v node` to find the older install and adjust
+your `PATH` so your shell uses the system Node too.
 
 Install `gh` using the [GitHub CLI apt repository instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#debian).
 
@@ -67,7 +80,9 @@ Add the `export` line to your shell profile so new shells and the Spur sessions 
 
 `spur init` installs and starts the Spur systemd user services, enables user linger so they keep
 running after logout, and may use `sudo` to install Tailscale. For this local setup you can
-ignore the `Tailscale not up` notice and the warning about a missing `~/.codex/skills` directory.
+ignore the `Tailscale not up` notice. You can also skip both `host skills not linked` notices for
+missing `~/.claude/skills` and `~/.codex/skills`. `board skills install` in step 2 creates both
+directories and installs the skills this guide uses.
 
 `board doctor` blocks on a Spur older than 1.53.0 with
 [spur.version](../TROUBLESHOOTING.md#spurversion).
@@ -124,9 +139,14 @@ entries as a JSON array.
 ### 3. Put the example config and Spur projects in place
 
 Clone your repository. Copy the contents of `projects.spur.yaml` to `spur.yaml` at the root of the
-checkout, replace `example-org/example-repo`, `example-user` and the project names with your own
-values, and set `defaultBranch` in all three projects to your repository's default branch if it is
-not `main`. Add `/spur.yaml` to `.git/info/exclude` in the clone to keep the local configuration
+checkout. Replace `example-org/example-repo` and `example-user` with your repository and GitHub
+login wherever they appear in the example files. You can keep the three `example-*` Spur project
+names if they are available. If you rename them, update the project keys in `spur.yaml`, the names
+under `spurProjects` in `config.yaml`, and the reviewer name in `columns[].orchestrator`. Use the
+new names in the spawn commands below.
+
+Set `defaultBranch` in all three projects to your repository's default branch if it is different
+from `main`. Add `/spur.yaml` to `.git/info/exclude` in the clone to keep the local configuration
 out of commits. Then connect it from the checkout:
 
 ```sh
@@ -146,8 +166,8 @@ chmod 700 ~/.config/spur-board
 [ -e ~/.config/spur-board/secrets.env ] || install -m 600 /dev/null ~/.config/spur-board/secrets.env
 ```
 
-Copy the contents of `config.yaml` to `~/.config/spur-board/config.yaml` and replace the same
-values. If your repository runs no CI checks, uncomment `reposWithoutCi` now: without it, a pull
+Copy the contents of `config.yaml` to `~/.config/spur-board/config.yaml` with the substitutions
+above. If your repository runs no CI checks, uncomment `reposWithoutCi` now: without it, a pull
 request with no checks waits in Dev, and the daemon reads the config only when it starts. Add the
 line `GITHUB_TOKEN=<your token>` to `secrets.env`, then check the config:
 
@@ -159,8 +179,8 @@ board doctor --offline
 
 **If it fails:** a `FAIL config` line names the field to fix
 ([config](../TROUBLESHOOTING.md#config)). The offline check does not read `secrets.env`; step 4
-does. Spur refuses a project id that another connected
-spur.yaml already uses: rename all three projects in both files
+does. Spur requires unique project IDs and session prefixes across connected `spur.yaml` files.
+The prefix defaults to the project ID. If a name is taken, follow the rename instructions above
 ([Refused Spur session](../TROUBLESHOOTING.md#refused-spur-session)).
 [Configuration and secrets](../SETUP.md#configuration-and-secrets) covers another config directory and Jira projects.
 
@@ -184,9 +204,10 @@ Node: [service.node](../TROUBLESHOOTING.md#servicenode).
 
 Before starting your first Spur session, launch each agent from the checkout as the same user
 who runs Spur. For Claude Code, run `claude --dangerously-skip-permissions` to use the permission
-mode Spur uses. Claude Code can ask whether you trust the workspace, show a Bypass Permissions
-warning, and offer a renderer. Run `codex` if you use Codex and follow its own first-run prompts.
-Sign in if prompted and exit each agent once it is ready for input.
+mode Spur uses. On the workspace trust screen, choose **Yes, I trust this folder**. On the Bypass
+Permissions warning, choose **Yes, I accept**. Both screens default to **No, exit**. Either choice
+works if Claude Code offers the fullscreen renderer. Run `codex` if you use Codex and follow its
+own first-run prompts. Sign in if prompted and exit each agent once it is ready for input.
 
 If a spawn is already stuck on a dialog, open `spur list` in a terminal, select the session and
 press Enter to attach. You can also run `tmux -L spur-4310 attach -t SESSION_ID`, replacing
@@ -211,11 +232,13 @@ board doctor
 ```
 
 **Success looks like:** the command exits 0 with no `FAIL` line. `Waiting` in `spur list` is normal
-between turns. `Completed` can describe a finished prompt or an ended session. The
-`orchestrator.sessions` check shows which reviewer session the Board last saw as live. If it
-reports `no live session` just after launch, wait for the next successful Spur poll and rerun
-`board doctor`. If the reviewer is still running, check the session setup. Start a replacement
-only after confirming the previous reviewer session has ended.
+between turns. `Completed` can describe a finished prompt or an ended session. Run
+`spur list </dev/null` to print the session dashboard. A row with `tmux live` means the session
+is still running. The `orchestrator.sessions` check shows which reviewer session the Board last
+saw as live. `PASS` confirms the Board sees a live reviewer for Review. If the check reports
+`no live session` just after launch, wait for the next successful Spur poll and rerun
+`board doctor`. If the reviewer is still running, check the session setup.
+Start a replacement only after confirming the previous reviewer session has ended.
 `WARNING web.spurUiOrigin` is expected without a Spur UI origin.
 `WARNING link.rules` is expected until the repository has a pull request by `operatorGithubLogin`.
 It never blocks
@@ -273,8 +296,14 @@ The worker links its session to the task, and the Board moves the task to Dev. I
 `example-operator` session, ask for the task's current state:
 
 ```text
-Run board task example-org/example-repo#<N> --why and tell me the column, open turn reason, and any holds.
+Run board task example-org/example-repo#<N> --why --json
+Quote why.waitsFor.text and tell me the column, any open turn reason, and any holds.
 ```
+
+`why.waitsFor.text` gives the task's current wait in one line. In `why.gates`, skip entries with
+`enabled: false`. Those columns are disabled for this project, so their failed conditions do not
+hold the task. When you run `--why` directly in a session terminal without `--json`, look for
+the first line, `waits for: <text>`. That terminal view hides disabled gates by default.
 
 **Success looks like:** if the task is in `dev` with no open turn and a `submit_pending` hold,
 the worker already submitted. The PR can be open on GitHub while the task query still reports
@@ -304,10 +333,11 @@ gate condition still holds the task in Dev. If it is missing, check that the PR 
 ### 8. Watch the reviewer review it
 
 When the checks pass and the worker submits its head, the task moves to Review and the reviewer
-gets a turn. In the `example-operator` session, ask it to run `board status`:
+gets a turn. In the `example-operator` session, ask for the task's current state:
 
 ```text
-Run board status and find example-org/example-repo#<N>. Tell me the column, any open turn reason, and the latest submission's column and whether it is pending or voided.
+Run board task example-org/example-repo#<N> --why --json
+Quote why.waitsFor.text and tell me the column, any open turn reason, and the latest submission's column and whether it is pending or voided.
 ```
 
 **Success looks like:** if the task is in `review` with no open turn and `submission.column` is
@@ -324,11 +354,17 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 9. Merge the pull request
 
-The agents never merge: you do. The reviewer posts its verdict, reviewed head, turn ID and notes
-on the pull request before submitting or returning the Board turn. The comment looks like this:
+Only you merge the pull request. Before submitting or returning the Board turn, the reviewer
+uses `gh pr comment` to record its verdict in the PR conversation. GitHub records approvals and
+requests for changes separately, so the PR can show zero GitHub reviews even after the Board
+review is complete. The comment looks like this:
 
 ```text
-Board Review — Verdict: Ready | Head: <reviewed SHA> | Turn: <Review turn ID> | Notes: Checked the acceptance criteria and test results.
+Board Review
+Verdict: Ready
+Head: <reviewed SHA>
+Turn: <Review turn ID>
+Notes: Checked the acceptance criteria and test results.
 ```
 
 Open the pull request and read the latest reviewer comment for the current head. A change to the
@@ -343,7 +379,8 @@ find the submitted turn in History. If you have a comment, use its turn ID to ma
 to that submission:
 
 ```text
-Run board task example-org/example-repo#<N> --why --refresh and tell me what the task waits for on the refreshed head.
+Run board task example-org/example-repo#<N> --why --refresh --json
+Quote why.waitsFor.text from the refreshed result.
 Run board task history example-org/example-repo#<N> and tell me which Review turn submitted that head and what full SHA it submitted.
 ```
 
@@ -355,8 +392,8 @@ GitHub:
 gh pr view <PR> --repo example-org/example-repo --json headRefOid --jq '.headRefOid'
 ```
 
-When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review
-gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.
+When `why.waitsFor.text` says `merge of example-org/example-repo#<PR> (a human)`, the Review gate
+is met on the current head. If the submitted SHA also matches GitHub, press the merge button.
 If the refresh fails or the SHAs differ, recheck the gate and the head before merging.
 [Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
