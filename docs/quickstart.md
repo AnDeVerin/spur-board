@@ -12,7 +12,7 @@ Each step shows the command, what success looks like, and where to look when it 
 
 ## Requirements
 
-- Linux with systemd user services and `flock`.
+- Linux with systemd user services, `flock`, and `tmux`.
 - Node 24.12+ (24.x) or 26.x, with its npm.
 - Spur 1.53.0 or newer. The minimal example was checked with Spur 1.62.3.
 - A GitHub classic personal access token with the `repo` and `read:org` scopes, authorized for
@@ -44,6 +44,13 @@ services run `/usr/bin/node` directly. If an older system package already owns t
 Node 24 package source that upgrades the system package in place.
 
 Install `gh` using the [GitHub CLI apt repository instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#debian).
+
+Spur uses tmux to launch agent sessions. Install it before starting any sessions.
+
+```sh
+sudo apt update
+sudo apt install -y tmux
+```
 
 ### Install Spur
 
@@ -297,12 +304,13 @@ When the checks pass and the worker submits its head, the task moves to Review a
 gets a turn. In the `example-operator` session, ask it to run `board status`:
 
 ```text
-Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
+Run board status and find example-org/example-repo#<N>. Tell me the column, any open turn reason, and the latest submission's column and whether it is pending or voided.
 ```
 
-**Success looks like:** if the task is in `review` and the reviewer already submitted, the turn
-is closed. Go on to step 9 and check the Review gate. While the reviewer works, the open turn has
-the reason `review: no_review_on_head`. If step 7 showed `submit_pending` in Dev, wait for the
+**Success looks like:** if the task is in `review` with no open turn and `submission.column` is
+`review`, with `submission.pending` and `submission.voided` both false, go to step 9 to verify
+the Review gate and PR head. While the reviewer works, the open turn has the reason
+`review: no_review_on_head`. If step 7 showed `submit_pending` in Dev, wait for the
 Board to link the PR on the next poll and for its checks to pass. When the reviewer returns the
 task, it goes back to `dev`, the worker fixes what the reviewer named, and the task comes back to
 Review.

@@ -11,6 +11,7 @@ import {
   SPUR_MIN_VERSION,
 } from '../../contracts/src/index.ts';
 import { taskGetOutputSchema } from '../../contracts/src/browser.ts';
+import { statusTaskSchema } from '../../contracts/src/ops/schemas.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
@@ -177,18 +178,17 @@ describe('public guide contents', () => {
   });
 
   it('judges each step by fields returned by its Board query', () => {
-    const prLink = taskGetOutputSchema.shape.links.element.safeParse({
-      kind: 'pr',
-      ref: 'example-org/example-repo#42',
-      role: null,
-    });
+    const { kind, ref } = taskGetOutputSchema.shape.links.element.shape;
+    const hasPrLink = kind.options.includes('pr') && ref.safeParse('owner/repo#42').success;
+    const submission = statusTaskSchema.shape.submission.unwrap().unwrap().shape;
     const waitsForSource = readFileSync(
       fileURLToPath(new URL('../../core/src/domain/waits-for.ts', import.meta.url)),
       'utf8',
     );
     // Step, the Board fact a reader checks there, and whether it exists in the code.
     const facts: [number, string[], boolean][] = [
-      [7, ['`links`', '`kind: pr`', '`ref`', '`example-org/example-repo#<PR>`'], prLink.success],
+      [7, ['`links`', '`kind: pr`', '`ref`', '`example-org/example-repo#<PR>`'], hasPrLink],
+      [8, ['`submission.column`'], submission.column.options.includes('review')],
       [9, ['`waits for: merge of'], /`merge of \$\{/.test(waitsForSource)],
       [10, ['`waits for: ticket to close`'], waitsForSource.includes("'ticket to close'")],
     ];

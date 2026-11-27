@@ -14,8 +14,9 @@ Replace `example-org/example-repo`, `example-user` and the project names with yo
 both files.
 
 The [quickstart requirements](../../docs/quickstart.md#requirements) cover Node, GitHub CLI and
-the agent CLI. Your GitHub repository needs at least one commit on its default branch so Spur can
-create worktrees. The [quickstart](../../docs/quickstart.md) shows how to verify each step.
+the agent CLI. Install [tmux on Ubuntu or Debian](../../docs/quickstart.md#on-ubuntu-or-debian)
+before launching sessions. Your GitHub repository needs at least one commit on its default branch
+so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows how to verify each step.
 
 ## Steps
 
