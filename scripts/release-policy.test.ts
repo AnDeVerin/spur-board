@@ -97,7 +97,7 @@ const CHANGELOG = new URL('../CHANGELOG.md', import.meta.url);
 /** The gate-on plugins a changelog commit needs, in config order. */
 function changelogCommitPlugins(): Plugin[] {
   const keep = [
-    'release-analyzer.ts',
+    'commit-analyzer',
     'release-notes-generator',
     'release-changelog.ts',
     'changelog:CHANGELOG.md',
@@ -166,7 +166,7 @@ describe('release policy', () => {
       plugins.indexOf(require.resolve('@semantic-release/github')),
     );
     const [analyzer, notes] = config.plugins;
-    expect(pluginName(analyzer ?? '')).toBe(require.resolve('./release-analyzer.ts'));
+    expect(pluginName(analyzer ?? '')).toBe(require.resolve('@semantic-release/commit-analyzer'));
     expect((pluginOptions(analyzer)['releaseRules'] as unknown[])[0]).toEqual({
       breaking: true,
       release: 'major',
@@ -188,7 +188,7 @@ describe('release policy', () => {
 
   it('loads the changelog commit only when RELEASE_CHANGELOG_COMMIT is true', () => {
     const off = [
-      'release-analyzer.ts',
+      'commit-analyzer',
       'release-notes-generator',
       'changelog:RELEASE_CHANGELOG.md',
       'npm',
@@ -200,7 +200,7 @@ describe('release policy', () => {
     }
     const on = loadConfig('true').plugins;
     expect(pluginLabels(on)).toEqual([
-      'release-analyzer.ts',
+      'commit-analyzer',
       'release-notes-generator',
       'changelog:RELEASE_CHANGELOG.md',
       'release-changelog.ts',
@@ -391,31 +391,25 @@ describe('release policy', () => {
   });
 
   const breakingFooter = 'BREAKING CHANGE: migrate the config';
+  const releaseTitle = 'feat(release)!: cut 1.0.0';
+  const releaseNote =
+    '1.0.0 is the first stable release. Nothing changes for an install on 0.171.x: the config, the CLI, the MCP and HTTP operations and the stored data stay as they are, and `board update` upgrades in place. From this release on, a breaking change to the config schema, CLI commands and flags, MCP or HTTP operations, error codes, stored data or bookmarked web routes is a major version and comes with an upgrade note here.';
+  const titleCases = [
+    ['breaking', 'v0.1.0', 'feat(core)!: break API', '1.0.0', 'break API'],
+    ['fix', 'v0.1.0', 'fix(core): repair API', '0.1.1', 'repair API'],
+    ['feature', 'v1.0.0', 'feat(core): add API', '1.1.0', 'add API'],
+    ['fix', 'v1.0.0', 'fix(core): repair API', '1.0.1', 'repair API'],
+    ['breaking', 'v1.0.0', 'feat(core)!: break API', '2.0.0', 'break API'],
+  ] as const;
   it.each([
-    {
-      name: 'breaking',
-      tag: 'v0.1.0',
-      message: 'feat(core)!: break API',
-      version: '0.2.0',
-      contain: ['break API'],
+    ...titleCases.map(([name, tag, message, version, note]) => ({
+      name,
+      tag,
+      message,
+      version,
+      contain: [note],
       lack: [],
-    },
-    {
-      name: 'fix',
-      tag: 'v0.1.0',
-      message: 'fix(core): repair API',
-      version: '0.1.1',
-      contain: ['repair API'],
-      lack: [],
-    },
-    {
-      name: 'breaking from 1.x',
-      tag: 'v1.2.0',
-      message: 'feat(core)!: break API',
-      version: '2.0.0',
-      contain: ['break API'],
-      lack: [],
-    },
+    })),
     {
       name: 'footer after a dash line',
       tag: 'v1.2.0',
@@ -428,15 +422,15 @@ describe('release policy', () => {
       name: 'footer after a dash line from 0.x',
       tag: 'v0.1.0',
       message: `feat(core): add API\n\n- [x] item -\nwrapped\n\n${breakingFooter}\n\nCloses #1`,
-      version: '0.2.0',
-      contain: ['migrate the config'],
+      version: '1.0.0',
+      contain: ['BREAKING CHANGES', 'migrate the config'],
       lack: [],
     },
     {
       name: 'footer cut at a # line',
       tag: 'v0.1.0',
       message: `feat(core): add API\n\n${breakingFooter}\nsee #5 first\ntail text\n\nCloses #1`,
-      version: '0.2.0',
+      version: '1.0.0',
       contain: ['migrate the config'],
       lack: ['tail text'],
     },
@@ -457,12 +451,12 @@ describe('release policy', () => {
       lack: [],
     },
     {
-      name: 'footer above Closes and squash trailers',
-      tag: 'v0.1.0',
-      message: `feat(core): add API\n\n${breakingFooter}\n\nCloses #1\n\n[AI-generated, session: sb-1]\n\n---------\n\nCo-authored-by: A <a@example.com>`,
-      version: '0.2.0',
-      contain: ['migrate the config', 'closes [#1]'],
-      lack: ['AI-generated', 'Co-authored-by'],
+      name: '1.0.0 squash with its full upgrade note',
+      tag: 'v0.171.4',
+      message: `${releaseTitle} (#999)\n\n- [x] item -\nwrapped\n\nBREAKING CHANGE: ${releaseNote}\n\nCloses #932\n\n[AI-generated, session: sb-1]\n\n---------\n\nCo-authored-by: A <a@example.com>`,
+      version: '1.0.0',
+      contain: [`### ⚠ BREAKING CHANGES\n\n* **release:** ${releaseNote}\n\n`, 'closes [#932]'],
+      lack: ['Closes #932', 'AI-generated', 'Co-authored-by'],
     },
   ])('dry runs from $tag: $name -> $version', async ({ tag, message, version, contain, lack }) => {
     const { repo, remote } = fixture(message, tag);
@@ -514,10 +508,14 @@ describe('release policy', () => {
   });
 
   it.each<[string, string | null, string?]>([
-    ['feat(core)!: break API', '0.2.0'],
+    [releaseTitle, '1.0.0', 'v0.171.4'],
+    [`feat(core): add API\n\n- [x] item -\nwrapped\n\n${breakingFooter}`, '1.0.0'],
+    ['feat(core): add API', '0.2.0'],
     ['fix(core): repair API', '0.1.1'],
     ['chore: tidy', null],
-    ['feat(core)!: break API', '2.0.0', 'v1.2.0'],
+    ['feat(core): add API', '1.1.0', 'v1.0.0'],
+    ['fix(core): repair API', '1.0.1', 'v1.0.0'],
+    ['feat(core)!: break API', '2.0.0', 'v1.0.0'],
   ])('computes the next version from a mirror: %s -> %s', async (message, expected, tag) => {
     const { repo } = fixture(message, tag);
     // A dispatch checkout: on a feature branch, with no local main.

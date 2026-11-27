@@ -51,7 +51,7 @@ export async function nextVersion(
   const analyzer = config.plugins.find(
     (plugin) =>
       (typeof plugin === 'string' ? plugin : plugin[0]) ===
-      require.resolve('./release-analyzer.ts'),
+      require.resolve('@semantic-release/commit-analyzer'),
   );
   if (analyzer === undefined) throw new Error('release.config.cjs has no commit analyzer.');
   const temporary = mkdtempSync(join(tmpdir(), 'spur-board-release-candidate-'));

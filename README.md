@@ -20,8 +20,7 @@ Light theme too:
 
 <img src="docs/images/board-light.png" width="480" alt="The same Board in the light theme">
 
-The project is in early development; work is tracked in
-[GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
+Work is tracked in [GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
 
 ## For agents
 
