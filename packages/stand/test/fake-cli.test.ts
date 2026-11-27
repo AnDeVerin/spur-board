@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, onTestFailed, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFailed, vi } from 'vitest';
 import {
   startControl,
   type Control,
@@ -20,6 +20,7 @@ const TOKEN = 'stub-control-token';
 
 let control: Control | undefined;
 let home: string | undefined;
+let testSignal: AbortSignal;
 const clock = vi.fn<ControlRoutes['clock']>(() =>
   Promise.resolve({ status: 200, body: { offsetMs: 0 } }),
 );
@@ -43,6 +44,10 @@ const demo = vi.fn<ControlRoutes['demo']>(() =>
     },
   }),
 );
+
+beforeEach(({ signal }) => {
+  testSignal = signal;
+});
 
 afterEach(async () => {
   await control?.close();
@@ -122,9 +127,9 @@ function runCli(
     stderr += chunk.toString('utf8');
   });
   return new Promise((resolve, reject) => {
-    let finished = false;
+    const signal = testSignal;
+    let vitestTimeout: Error | undefined;
     const timeoutError = (): Error => {
-      finish();
       let alive: boolean | 'unknown' = 'unknown';
       try {
         alive = child.pid !== undefined && procStat(child.pid) !== undefined;
@@ -151,17 +156,24 @@ function runCli(
     };
     const timer = setTimeout(
       () => {
+        finish();
         reject(timeoutError());
       },
       Math.max(0, CLI_TIMEOUT_MS - spawnCallMs),
     );
     const finish = (): void => {
-      finished = true;
       clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
     };
+    const onAbort = (): void => {
+      finish();
+      vitestTimeout = timeoutError();
+      reject(vitestTimeout);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
     onTestFailed(() => {
-      // Vitest can get there first, e.g. if the synchronous spawn call blocks its timer.
-      if (!finished) throw timeoutError();
+      // Vitest already rejected the test promise, so report the saved evidence separately.
+      if (vitestTimeout !== undefined) throw vitestTimeout;
     });
     child.once('error', (error) => {
       finish();
