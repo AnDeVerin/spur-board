@@ -202,8 +202,10 @@ board doctor
 
 **Success looks like:** the command exits 0 with no `FAIL` line. `Waiting` in `spur list` is normal
 between turns. `Completed` can describe a finished prompt or an ended session. The
-`orchestrator.sessions` check shows which reviewer session can receive the next turn. If it
-reports no live reviewer, repeat the reviewer launch command above to start a replacement.
+`orchestrator.sessions` check shows which reviewer session the Board last saw as live. If it
+reports `no live session` just after launch, wait for the next successful Spur poll and rerun
+`board doctor`. If the reviewer is still running, check the session setup. Start a replacement
+only after confirming the previous reviewer session has ended.
 `WARNING web.spurUiOrigin` is expected without a Spur UI origin.
 `WARNING link.rules` is expected until the repository has a pull request by `operatorGithubLogin`.
 It never blocks

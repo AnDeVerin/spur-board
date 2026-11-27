@@ -201,14 +201,14 @@ describe('public guide contents', () => {
   });
 
   it.each([
-    ['quickstart', step(5)],
-    ['minimal example', read('../../../examples/minimal/README.md')],
-  ])('explains how to identify and replace an ended reviewer in the %s', (_name, text) => {
-    const guide = flat(text);
+    ['quickstart', flat(step(5))],
+    ['minimal example', flat(read('../../../examples/minimal/README.md'))],
+  ])('explains how to identify and replace an ended reviewer in the %s', (_name, guide) => {
     expect(guide).toContain('`Waiting` in `spur list` is normal between turns');
     expect(guide).toContain('`Completed` can describe a finished prompt or an ended session');
     expect(guide).toContain('`orchestrator.sessions` check shows which reviewer session');
-    expect(guide).toContain('no live reviewer, repeat the reviewer launch command above');
+    expect(guide).toContain('wait for the next successful Spur poll and rerun `board doctor`');
+    expect(guide).toContain('Start a replacement only after confirming');
   });
 
   it.each([

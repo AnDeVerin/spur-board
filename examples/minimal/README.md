@@ -109,8 +109,10 @@ create worktrees. The [quickstart](../../docs/quickstart.md) shows how to verify
    Its `path.spur` and `orchestrator.sessions` checks need live Spur sessions, so they warn when
    run before this step. `Waiting` in `spur list` is normal between turns. `Completed` can describe a
    finished prompt or an ended session. The `orchestrator.sessions` check shows which reviewer
-   session can receive the next turn. If it reports no live reviewer, repeat the reviewer launch
-   command above to start a replacement.
+   session the Board last saw as live. If it reports `no live session` just after launch, wait
+   for the next successful Spur poll and rerun `board doctor`. If the reviewer is still running,
+   check the session setup. Start a replacement only after confirming the previous reviewer
+   session has ended.
 
 8. Start one worker session per issue, with the issue URL in the prompt:
 
