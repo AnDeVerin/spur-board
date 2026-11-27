@@ -25,9 +25,12 @@ Reopening a ticket finished without a PR returns the task to To Do.
 
 ## Merged PR alerts
 
-For a GitHub Issue task, the worker idle item waits until an issue read starts after the Board
-sees the latest linked merge. A read that still finds the issue open lets the usual idle rules
-apply. Entering Done clears any worker idle item, even while the wrap-up turn is open.
+When the Board first observes a linked PR as merged on a GitHub Issue task, it waits to raise a
+new worker idle alert until it reads the issue in a poll that started after it saw the latest
+linked merge. An existing idle alert can stay open while the Board waits. A fresh read that
+finds the issue still open lets the usual idle rules apply. Entering Done clears any worker idle
+alert, even while the wrap-up turn is open. PRs already recorded as merged at upgrade keep their
+prior idle alert timing.
 
 An agent holding the current open non-Done turn raises an `ended-turn:` item (`worker_ended`) when
 it ends, whatever its PRs; it has no `health:` item (see the [inbox](how-board-works-inbox.md)).
