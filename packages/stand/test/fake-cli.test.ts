@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFailed, vi } from 'vitest';
 import {
   startControl,
   type Control,
@@ -11,9 +11,11 @@ import {
   type RouteResult,
 } from '../src/control.ts';
 import { shellWord } from '../src/guards.ts';
-import { STAND_PREFIX, writeManifest } from '../src/manifest.ts';
+import { procStat, STAND_PREFIX, writeManifest } from '../src/manifest.ts';
 
 const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+// Leave room to report and kill a hung child before the 30 s Vitest deadline.
+const CLI_TIMEOUT_MS = 25_000;
 const TOKEN = 'stub-control-token';
 
 let control: Control | undefined;
@@ -96,12 +98,23 @@ function runCli(
   args: readonly string[],
   env?: NodeJS.ProcessEnv,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const start = performance.now();
+  const elapsedMs = (): number => Math.round(performance.now() - start);
   const child = spawn(process.execPath, [CLI, ...args], {
     stdio: ['ignore', 'pipe', 'pipe'],
     ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
   });
+  const spawnCallMs = elapsedMs();
+  let spawnEventMs: number | undefined;
+  let exitEventMs: number | undefined;
   let stdout = '';
   let stderr = '';
+  child.once('spawn', () => {
+    spawnEventMs = elapsedMs();
+  });
+  child.once('exit', () => {
+    exitEventMs = elapsedMs();
+  });
   child.stdout.on('data', (chunk: Buffer) => {
     stdout += chunk.toString('utf8');
   });
@@ -109,8 +122,53 @@ function runCli(
     stderr += chunk.toString('utf8');
   });
   return new Promise((resolve, reject) => {
-    child.on('error', reject);
-    child.on('close', (code) => {
+    let finished = false;
+    const timeoutError = (): Error => {
+      finish();
+      let alive: boolean | 'unknown' = 'unknown';
+      try {
+        alive = child.pid !== undefined && procStat(child.pid) !== undefined;
+      } catch {
+        // An unreadable /proc entry should not prevent cleanup or hide the captured output.
+      }
+      const diagnostics = {
+        elapsedMs: elapsedMs(),
+        spawnCallMs,
+        spawnEventMs: spawnEventMs ?? null,
+        exitEventMs: exitEventMs ?? null,
+        pid: child.pid ?? null,
+        alive,
+        exitCode: child.exitCode,
+        signalCode: child.signalCode,
+        stdout,
+        stderr,
+      };
+      // A child that has exited can still leave a pipe open. Release our ends either way.
+      if (exitEventMs === undefined) child.kill('SIGKILL');
+      child.stdout.destroy();
+      child.stderr.destroy();
+      return new Error(`stand CLI did not close: ${JSON.stringify(diagnostics, null, 2)}`);
+    };
+    const timer = setTimeout(
+      () => {
+        reject(timeoutError());
+      },
+      Math.max(0, CLI_TIMEOUT_MS - spawnCallMs),
+    );
+    const finish = (): void => {
+      finished = true;
+      clearTimeout(timer);
+    };
+    onTestFailed(() => {
+      // Vitest can get there first, e.g. if the synchronous spawn call blocks its timer.
+      if (!finished) throw timeoutError();
+    });
+    child.once('error', (error) => {
+      finish();
+      reject(error);
+    });
+    child.once('close', (code) => {
+      finish();
       resolve({ code, stdout, stderr });
     });
   });

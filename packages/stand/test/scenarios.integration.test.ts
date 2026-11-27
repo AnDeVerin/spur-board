@@ -441,11 +441,15 @@ describe('scenarios', () => {
   }, 60_000);
 
   it('a stop ends a seed that waits on the board', async () => {
+    const entered = deferred();
     const waiting: Scenario = {
       name: 'waiting',
       summary: 'A seed that waits for a state that never comes.',
       async seed(board) {
-        await board.until('never', 600_000, () => false);
+        await board.until('never', 600_000, () => {
+          entered.resolve();
+          return false;
+        });
         return {};
       },
       settled: () => Promise.resolve({ ok: true }),
@@ -453,10 +457,11 @@ describe('scenarios', () => {
     const manifest = await up({ scenarios: [waiting] });
     checked = undefined;
     const seeding = control(manifest, '/seed', { scenario: 'waiting' });
-    await vi.waitFor(async () => {
-      const during = await control(manifest, '/wait', { condition: 'scenario', timeoutMs: 0 });
-      expect(during.body).toMatchObject({ diagnostics: 'seeding waiting' });
-    });
+    // The seed request restarts the daemon before the predicate can run.
+    const earlyResponse = await Promise.race([entered.promise, seeding]);
+    expect(earlyResponse).toBeUndefined();
+    const during = await control(manifest, '/wait', { condition: 'scenario', timeoutMs: 0 });
+    expect(during).toMatchObject({ status: 504, body: { diagnostics: 'seeding waiting' } });
     const started = Date.now();
     expect(await stand?.stop()).toBe(0);
     expect(Date.now() - started).toBeLessThan(10_000);
