@@ -267,20 +267,41 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 9. Merge the pull request
 
-The agents never merge: you do. The task stays in `review` after the reviewer submits, so first
-ask `example-operator` whether the Review gate is met:
+The reviewer posts its verdict, reviewed head, turn ID and notes on the pull request before
+submitting or returning the Board turn. The comment looks like this:
 
 ```text
-Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
+Board Review — Verdict: Ready | Head: <reviewed SHA> | Turn: <Review turn ID> | Notes: Checked the acceptance criteria and test results.
 ```
 
-When it reports the `review_on_head` gate met on the current head, open the pull request in the
-browser and press the merge button
-([Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates):
+Open the pull request and read the latest reviewer comment for the current head. A change to the
+pull request description can lead to another Review turn on the same commit:
 
 ```sh
 gh pr view <PR> --repo example-org/example-repo --web
 ```
+
+The task stays in `review` after a submit. Ask `example-operator` to check the Review gate and
+find the submitted turn in History. If you have a comment, use its turn ID to match the notes
+to that submission:
+
+```text
+Run board task example-org/example-repo#<N> --why --refresh and tell me whether the review_on_head gate is met on the refreshed head.
+Run board task history example-org/example-repo#<N> and tell me which Review turn submitted that head and what full SHA it submitted.
+```
+
+If the comment is missing after an operator takeover or it still shows an earlier verdict,
+use the submitted turn in History for the outcome. Just before merging, read the head SHA from
+GitHub:
+
+```sh
+gh pr view <PR> --repo example-org/example-repo --json headRefOid --jq '.headRefOid'
+```
+
+When the Board reports the `review_on_head` gate met on the current head and the submitted SHA
+matches GitHub, press the merge button. If the refresh fails or the SHAs differ, recheck the
+gate and the head before merging.
+[Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
 
