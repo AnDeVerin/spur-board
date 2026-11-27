@@ -953,6 +953,33 @@ describe('stand', () => {
     90_000,
   );
 
+  it('returns without arming cleanup timers when the requested API port is taken', async () => {
+    const taken = await occupyStandPort();
+    const preload = `data:text/javascript,${encodeURIComponent(`
+      import { writeSync } from 'node:fs';
+      const set = globalThis.setTimeout;
+      globalThis.setTimeout = (callback, delay, ...args) => {
+        if (delay === 15000 || delay === 5000) {
+          writeSync(2, 'unexpected cleanup timer\\n');
+          return set(callback, 0, ...args);
+        }
+        return set(callback, delay, ...args);
+      };
+    `)}`;
+    try {
+      const started = await standCli(['up', '--port', String(taken.port)], {
+        NODE_OPTIONS: `--import=${preload}`,
+      });
+      expect(started.code, started.stderr).toBe(1);
+      expect(started.stderr).toContain('The stand did not start. Log:');
+      expect(started.stderr).toContain(`Port ${String(taken.port)} on 127.0.0.1 is in use`);
+      expect(started.stderr).not.toContain('unexpected cleanup timer');
+      expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
+    } finally {
+      await taken.close();
+    }
+  }, 60_000);
+
   it('fails without a retry when a requested web port is taken', async () => {
     writeLiveConfig(liveConfigDir(osHome), { web: LIVE_WEB });
     const taken = await occupyStandPort();

@@ -579,7 +579,18 @@ async function spawnStand(
       // The group is already gone.
     }
   };
-  const exitWithin = (ms: number): Promise<void> => Promise.race([exit, sleep(ms)]);
+  const exitWithin = async (ms: number): Promise<void> => {
+    if (exited()) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const elapsed = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+    });
+    try {
+      await Promise.race([exit, elapsed]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   killGroup('SIGTERM');
   await exitWithin(DOWN_TIMEOUT_MS);
   killGroup('SIGKILL');
@@ -964,7 +975,7 @@ function fakeSlack(home: string | undefined, args: string[]): Promise<number> {
   );
 }
 
-async function main(argv: string[]): Promise<number> {
+async function main(argv: string[]): Promise<number | undefined> {
   const [command, ...args] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
     (command === undefined ? err : out)(USAGE);
@@ -1088,6 +1099,8 @@ async function main(argv: string[]): Promise<number> {
         ...(values.home === undefined ? {} : { home: values.home }),
         detached: values.detached ?? false,
         argv,
+      }).then(exitAfterFlush, (error: unknown): undefined => {
+        exitAfterFlush(reportFailure(error));
       });
     }
     case 'down':
@@ -1155,8 +1168,8 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-/** Exits once stdout and stderr have flushed, so a pipe gets every byte written before. */
-function exitAfterFlush(code: number): void {
+/** Forces foreground shutdown after flushing, even when an expired stop leaves work pending. */
+function exitAfterFlush(code: number): undefined {
   let pending = 2;
   const done = (): void => {
     pending -= 1;
@@ -1166,24 +1179,26 @@ function exitAfterFlush(code: number): void {
   process.stderr.write('', done);
 }
 
+function reportFailure(error: unknown): number {
+  if (error instanceof StandRefusedError) {
+    err(`stand refused (${error.reason}): ${error.message}\n`);
+    return 3;
+  }
+  if (
+    error instanceof UsageError ||
+    (error instanceof TypeError &&
+      'code' in error &&
+      String(error.code).startsWith('ERR_PARSE_ARGS'))
+  ) {
+    err(`${error.message}\nRun pnpm stand help for the commands.\n`);
+    return 2;
+  }
+  err(`stand: ${error instanceof Error ? error.message : String(error)}\n`);
+  return 1;
+}
+
 if (import.meta.main) {
-  main(process.argv.slice(2)).then(exitAfterFlush, (error: unknown) => {
-    if (error instanceof StandRefusedError) {
-      err(`stand refused (${error.reason}): ${error.message}\n`);
-      exitAfterFlush(3);
-      return;
-    }
-    if (
-      error instanceof UsageError ||
-      (error instanceof TypeError &&
-        'code' in error &&
-        String(error.code).startsWith('ERR_PARSE_ARGS'))
-    ) {
-      err(`${error.message}\nRun pnpm stand help for the commands.\n`);
-      exitAfterFlush(2);
-      return;
-    }
-    err(`stand: ${error instanceof Error ? error.message : String(error)}\n`);
-    exitAfterFlush(1);
-  });
+  // Let one-shot commands drain their output and avoid Node's forced shutdown path.
+  const code = await main(process.argv.slice(2)).catch(reportFailure);
+  if (code !== undefined) process.exitCode = code;
 }
