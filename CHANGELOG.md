@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.171.5](https://github.com/AnDeVerin/spur-board/compare/v0.171.4...v0.171.5) (2026-11-27)
+
+### Bug Fixes
+
+* **ds:** [#931](https://github.com/AnDeVerin/spur-board/issues/931) report one HoverMenu open request per hover ([#933](https://github.com/AnDeVerin/spur-board/issues/933)) ([a5b39bd](https://github.com/AnDeVerin/spur-board/commit/a5b39bd03ea0c429c63b365ac53ff7d459552d9f)), closes [#924](https://github.com/AnDeVerin/spur-board/issues/924)
+
 ## [0.171.4](https://github.com/AnDeVerin/spur-board/compare/v0.171.3...v0.171.4) (2026-11-27)
 
 ### Bug Fixes
