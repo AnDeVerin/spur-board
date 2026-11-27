@@ -2891,6 +2891,77 @@ describe('anomaly blocks', () => {
     expect(await acceptance(8)).toEqual({ merged_seen_at: null });
   });
 
+  it.each([
+    {
+      scenario: 'fresh confirmed miss',
+      status: 'not_found',
+      complete: true,
+      gone: true,
+      delay: 1_000,
+      raises: true,
+    },
+    {
+      scenario: 'equal poll start',
+      status: 'not_found',
+      complete: true,
+      gone: true,
+      delay: 0,
+      raises: false,
+    },
+    {
+      scenario: 'unconfirmed miss',
+      status: 'not_found',
+      complete: true,
+      gone: false,
+      delay: 1_000,
+      raises: false,
+    },
+    {
+      scenario: 'incomplete poll',
+      status: 'not_found',
+      complete: false,
+      gone: true,
+      delay: 1_000,
+      raises: false,
+    },
+    {
+      scenario: 'missing access',
+      status: 'no_access',
+      complete: true,
+      gone: true,
+      delay: 1_000,
+      raises: false,
+    },
+  ] as const)(
+    'uses issue lookup results after a merge: $scenario',
+    async ({ status, complete, gone, delay, raises }) => {
+      const b = await board();
+      const idle = () =>
+        b.store.db
+          .selectFrom('operator_item')
+          .select('cleared_at')
+          .where('item_key', 'like', 'health:%:worker_idle')
+          .execute();
+      await poll(b, source, [{ kind: 'ticket', facts: fact() }]);
+      await spur(b, [session('worker-1', 'waiting')]);
+      await prs(b, [pr(7, 'open')]);
+      now += IDLE;
+      await prs(b, [{ ...pr(7, 'merged'), mergedAt: iso(), updatedAt: iso() }]);
+      expect(await idle()).toEqual([]);
+
+      now += delay;
+      const ref = (await b.core.context(source)).observe.tickets[0];
+      if (ref === undefined) throw new Error('Missing linked issue request');
+      await b.core.observe(source, {
+        batch: { source, observedAt: iso(), complete, items: [], entities: [{ ref, status }] },
+        effectiveComplete: complete && gone,
+        state: { lastCompleteAt: iso(), gone: gone ? [ref] : [] },
+        outcomes: [{ ref, misses: gone ? 3 : 1, gone }],
+      });
+      expect(await idle()).toEqual(raises ? [{ cleared_at: null }] : []);
+    },
+  );
+
   async function surface(b: Board) {
     const outbox = async (kind: string) =>
       (await b.store.db.selectFrom('outbox').select('id').where('kind', '=', kind).execute())
