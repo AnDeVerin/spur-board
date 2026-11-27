@@ -77,6 +77,7 @@ import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-th
 import { showcase } from './showcase.ts';
 import { walkthrough } from './walkthrough.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
+import { spurLocalArtifactLinks } from './spur-local-artifact-links.ts';
 import {
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
@@ -216,6 +217,7 @@ export const SCENARIOS: readonly Scenario[] = [
   operatorConversation,
   workerKilledNoPr,
   spurSourceSilent,
+  spurLocalArtifactLinks,
   sourceBlind,
   tokenApproval,
   feedCodeHints,

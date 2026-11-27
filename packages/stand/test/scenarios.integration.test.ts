@@ -257,6 +257,7 @@ describe('scenarios', () => {
       'operator-conversation',
       'worker-killed-no-pr',
       'spur-source-silent',
+      'spur-local-artifact-links',
       'source-blind',
       'token-approval',
       'feed-code-hints',
@@ -714,6 +715,11 @@ describe('each scenario', () => {
       },
       { timeout: 5_000, interval: 100 },
     );
+  }, 60_000);
+
+  it('spur-local-artifact-links: ingests both sessions and publishes their web links', async () => {
+    await up();
+    await seed('spur-local-artifact-links');
   }, 60_000);
 
   it('spur-transitions-rapid-recovery: retains both edges and their original reset and links', async () => {
