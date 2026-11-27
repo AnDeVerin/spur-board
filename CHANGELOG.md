@@ -2,6 +2,22 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [1.0.0](https://github.com/AnDeVerin/spur-board/compare/v0.171.5...v1.0.0) (2026-11-27)
+
+### ⚠ BREAKING CHANGES
+
+* **release:** 1.0.0 is the first stable release. Existing 0.171.x
+installations can upgrade in place with `board update`, keeping their
+configuration and stored data. The upgrade applies any pending database
+migrations automatically. From this release on, a breaking change to the
+config schema, CLI commands and flags, MCP or HTTP operations, error
+codes, stored data or bookmarked web routes is a major version and comes
+with an upgrade note here.
+
+### Features
+
+* **release:** cut 1.0.0 ([#934](https://github.com/AnDeVerin/spur-board/issues/934)) ([80a5c33](https://github.com/AnDeVerin/spur-board/commit/80a5c3365c62a3989a272d8dfc9132050881a6f0)), closes [#932](https://github.com/AnDeVerin/spur-board/issues/932)
+
 ## [0.171.5](https://github.com/AnDeVerin/spur-board/compare/v0.171.4...v0.171.5) (2026-11-27)
 
 ### Bug Fixes
