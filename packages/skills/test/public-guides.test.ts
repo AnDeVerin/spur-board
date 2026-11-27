@@ -195,6 +195,30 @@ describe('public guide contents', () => {
     }
   });
 
+  it.each([
+    ['missing verdict after takeover', [/comment is missing after an operator takeover/]],
+    ['stale verdict on the same turn', [/comment .* still shows an earlier verdict/]],
+    [
+      'another Review turn on the same SHA',
+      [/latest reviewer comment for the current head/, /use its turn ID to match the notes/],
+    ],
+    [
+      'a new push after review',
+      [
+        /--why --refresh/,
+        /--json headRefOid --jq '\.headRefOid'/,
+        /the refresh fails or the SHAs differ/,
+      ],
+    ],
+  ])('uses the Board outcome: %s', (_, guidance) => {
+    const merge = flat(step(9));
+    for (const rule of guidance) expect(merge).toMatch(rule);
+    expect(merge).toContain('use the submitted turn in History for the outcome');
+    expect(merge).toContain(
+      'When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.',
+    );
+  });
+
   it('asks the operator session only for registered board commands and flags', () => {
     // skill-sync skips `text` fences, so check the requests to example-operator here, against the
     // generated command reference.
