@@ -145,7 +145,7 @@ it.each(['closed', 'open'] as const)(
     const idle = () =>
       store.db
         .selectFrom('operator_item')
-        .selectAll()
+        .select(['id', 'cleared_at'])
         .where('item_key', 'like', 'health:%:worker_idle')
         .execute();
     const submit = async (actor: typeof worker | typeof reviewer) => {
@@ -254,6 +254,9 @@ it.each(['closed', 'open'] as const)(
         to: 'done',
         reason: 'merged',
       });
+      const expectedIdleHistory =
+        nextRead === 'closed' ? [] : [{ id: openIdleId, cleared_at: new Date(now).toISOString() }];
+      expect(await idle()).toEqual(expectedIdleHistory);
       const inbox = await query(registry['inbox.get'], {}, worker);
       expect(inbox.turns).toMatchObject([{ task: ISSUE, column: 'done', reason: 'done: wrap up' }]);
       expect(
@@ -263,11 +266,7 @@ it.each(['closed', 'open'] as const)(
       await poll(spurAdapter);
       const items = await query(registry['status.get'], { project: 'stand' }, 'operator');
       expect(items.items.filter(({ key }) => key.endsWith(':worker_idle'))).toEqual([]);
-      if (nextRead === 'closed') expect(await idle()).toEqual([]);
-      else
-        expect(await idle()).toMatchObject([
-          { id: openIdleId, cleared_at: new Date(now).toISOString() },
-        ]);
+      expect(await idle()).toEqual(expectedIdleHistory);
     } finally {
       spur.close();
       await store.close();
