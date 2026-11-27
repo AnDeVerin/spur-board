@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.170.3](https://github.com/AnDeVerin/spur-board/compare/v0.170.2...v0.170.3) (2026-11-27)
+
+### Bug Fixes
+
+* **cli:** [#911](https://github.com/AnDeVerin/spur-board/issues/911) point the identity_missing hint to a Spur session without Slack ([#915](https://github.com/AnDeVerin/spur-board/issues/915)) ([961f462](https://github.com/AnDeVerin/spur-board/commit/961f462605aa4d32fee62e4d7d2cda5c3fb6acf0))
+
 ## [0.170.2](https://github.com/AnDeVerin/spur-board/compare/v0.170.1...v0.170.2) (2026-11-26)
 
 ### Bug Fixes
