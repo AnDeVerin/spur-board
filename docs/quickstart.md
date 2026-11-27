@@ -232,11 +232,12 @@ board doctor
 ```
 
 **Success looks like:** the command exits 0 with no `FAIL` line. `Waiting` in `spur list` is normal
-between turns. `Completed` can describe a finished prompt or an ended session. Look for `tmux live`
-in `spur list` to confirm the session is still running. The `orchestrator.sessions` check shows
-which reviewer session the Board last saw as live. `PASS` confirms the Board sees a live reviewer
-for Review. If the check reports `no live session` just after launch, wait for the next successful
-Spur poll and rerun `board doctor`. If the reviewer is still running, check the session setup.
+between turns. `Completed` can describe a finished prompt or an ended session. Run
+`spur list </dev/null` to print the session dashboard. A row with `tmux live` means the session
+is still running. The `orchestrator.sessions` check shows which reviewer session the Board last
+saw as live. `PASS` confirms the Board sees a live reviewer for Review. If the check reports
+`no live session` just after launch, wait for the next successful Spur poll and rerun
+`board doctor`. If the reviewer is still running, check the session setup.
 Start a replacement only after confirming the previous reviewer session has ended.
 `WARNING web.spurUiOrigin` is expected without a Spur UI origin.
 `WARNING link.rules` is expected until the repository has a pull request by `operatorGithubLogin`.

@@ -115,12 +115,13 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
 
    Its `path.spur` and `orchestrator.sessions` checks need live Spur sessions, so they warn when
    run before this step. `Waiting` in `spur list` is normal between turns. `Completed` can describe a
-   finished prompt or an ended session. Look for `tmux live` in `spur list` to confirm the session
-   is still running. The `orchestrator.sessions` check shows which reviewer session the Board last
-   saw as live. `PASS` confirms the Board sees a live reviewer for Review. If the check reports
-   `no live session` just after launch, wait for the next successful Spur poll and rerun
-   `board doctor`. If the reviewer is still running, check the session setup. Start a replacement
-   only after confirming the previous reviewer session has ended.
+   finished prompt or an ended session. Run `spur list </dev/null` to print the session dashboard.
+   A row with `tmux live` means the session is still running. The `orchestrator.sessions` check
+   shows which reviewer session the Board last saw as live. `PASS` confirms the Board sees a live
+   reviewer for Review. If the check reports `no live session` just after launch, wait for the
+   next successful Spur poll and rerun `board doctor`. If the reviewer is still running, check
+   the session setup. Start a replacement only after confirming the previous reviewer session
+   has ended.
 
 8. Start one worker session per issue, with the issue URL in the prompt:
 
