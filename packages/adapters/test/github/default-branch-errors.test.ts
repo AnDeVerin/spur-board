@@ -30,7 +30,7 @@ const config = configSchema.parse({
 
 type Fault =
   'parentRollup' | 'tipParents' | 'firstParentParents' | 'tipRollup' | 'differentTip' | 'tipSuites';
-type TipChecks = 'queuedSuite' | 'scheduledSuite' | 'running' | 'red';
+type TipChecks = 'queuedSuite' | 'scheduledSuite' | 'running' | 'red' | 'truncated' | 'malformed';
 
 it.each<{ name: string; checked: number; failure?: Fault; tip?: TipChecks; read?: boolean }>([
   { name: 'walk past a release with no suite or checks', checked: 1, read: true },
@@ -42,6 +42,8 @@ it.each<{ name: string; checked: number; failure?: Fault; tip?: TipChecks; read?
     read: true,
   },
   { name: 'hold on a running push check', checked: 1, tip: 'running' },
+  { name: 'hold on truncated contexts with a readable parent', checked: 1, tip: 'truncated' },
+  { name: 'hold on malformed contexts with a readable parent', checked: 1, tip: 'malformed' },
   { name: 'read a completed red push check', checked: 1, tip: 'red', read: true },
   { name: 'read a completed green push check', checked: 0, read: true },
   {
@@ -93,26 +95,44 @@ it.each<{ name: string; checked: number; failure?: Fault; tip?: TipChecks; read?
   },
 ])('$name', async ({ checked, failure, tip, read }) => {
   const suite = (event: string) => ({ workflowRun: { event } });
-  const connection = (nodes: unknown[]) => ({ nodes, pageInfo: { hasNextPage: false } });
+  const connection = (nodes: unknown[], hasNextPage = false) => ({
+    nodes,
+    pageInfo: { hasNextPage },
+  });
   const tipRuns = {
     running: [{ ...check, status: 'IN_PROGRESS', conclusion: null, completedAt: null }],
     red: [{ ...check, conclusion: 'FAILURE' }],
     queuedSuite: [],
     scheduledSuite: [],
+    truncated: [
+      {
+        ...check,
+        conclusion: 'FAILURE',
+        checkSuite: {
+          createdAt: at,
+          workflowRun: { event: 'schedule', workflow: { id: 'nightly' } },
+        },
+      },
+    ],
+    malformed: [],
   };
   const commit = (index: number) => ({
     oid: shas[index],
     checkSuites: connection(
-      index === 0 && tip !== undefined
+      index === 0 && tip !== undefined && tip !== 'truncated' && tip !== 'malformed'
         ? [suite(tip === 'scheduledSuite' ? 'schedule' : 'push')]
         : index === checked
           ? [suite('push')]
           : [],
     ),
     statusCheckRollup: {
-      contexts: connection(
-        index === 0 && tip !== undefined ? tipRuns[tip] : index === checked ? [check] : [],
-      ),
+      contexts:
+        index === 0 && tip === 'malformed'
+          ? null
+          : connection(
+              index === 0 && tip !== undefined ? tipRuns[tip] : index === checked ? [check] : [],
+              index === 0 && tip === 'truncated',
+            ),
     },
   });
   const target = { __typename: 'Commit', ...commit(0) };
