@@ -8,7 +8,7 @@ import {
   type TaskHold,
   type WaitsForKind,
 } from '@spur-board/contracts';
-import { nextColumn } from './dispatch.ts';
+import { COMPLETION_RULE, nextColumn, type CompletionFacts } from './dispatch.ts';
 import type { evaluateGate, GateProject } from './gates.ts';
 
 // What `board task --why` says a task waits for, read from the facts `why` already computed. It
@@ -31,14 +31,13 @@ export interface PrRef {
 /** A fact `why` lists in `waiting`. */
 type Waiting = { reason: GateReason; head: string; reviewers?: readonly string[] };
 
-/** What the dispatcher reads about the work besides the PR: completion and work start use it. */
-export interface WorkFacts {
-  /** A reopen: only an open PR counts as started work, a live worker does not. */
+/**
+ * What the dispatcher reads about the work besides the PR: the completion facts, a reopen (only an
+ * open PR then counts as started work) and a blind GitHub, which stops every move.
+ */
+export interface WorkFacts extends CompletionFacts {
   reopened: boolean;
-  ticketDone: boolean;
-  liveWorker: boolean;
-  /** A linked PR, the judged one or another, is open: completion without a merge waits for it. */
-  hasOpenLinkedPr: boolean;
+  githubBlind: boolean;
 }
 
 /** The open turn: `byOperator` when the operator took it over; `wait` while its holder waits. */
@@ -98,30 +97,38 @@ function turnWait(turn: TurnFacts): WaitsFor {
   const reason = turn.wait.reason.replace(/\s+/g, ' ').trim();
   return { ...line, text: `${line.text}, waiting until ${until} for ${reason}` };
 }
+
 const NEXT_PASS_TO_DONE = 'the next dispatcher pass to move it to done';
+const TICKET_WITHOUT_WORK = 'ticket to close, with no open PR and no live worker';
 
 /**
- * What completion waits for with the judged PR not open: a done ticket, then no open linked PR and
- * no live worker.
+ * Whether completion, which bypasses every gate and turn, judges the task now: a done ticket, or a
+ * merged PR the gates judge (an unconfirmed ticket holds the task before it).
  */
-function withoutOpenPr({ ticketDone, hasOpenLinkedPr, liveWorker }: WorkFacts): Wait {
-  if (!ticketDone) return ['ticket', 'ticket to close, with no open PR and no live worker', null];
-  if (hasOpenLinkedPr) return ['merge', 'an open linked PR to merge or close', 'human'];
-  return liveWorker
-    ? ['work', 'the worker session to end, with no open PR', null]
-    : ['board', NEXT_PASS_TO_DONE, null];
+const completes = (pr: PrRef | null, work: WorkFacts) => work.ticketDone || pr?.state === 'merged';
+
+/**
+ * What completion waits for, by the first unmet condition of `COMPLETION_RULE`: a merged PR or a
+ * finished ticket with fresh polls moves the task. An open PR completes it once merged, or once
+ * closed when no worker is live; a live worker otherwise blocks only the closed-ticket route.
+ */
+function completionWait(pr: PrRef | null, work: WorkFacts): Wait {
+  if (COMPLETION_RULE.reason(pr, work) !== null) return ['board', NEXT_PASS_TO_DONE, null];
+  if (pr?.state === 'open')
+    return work.liveWorker
+      ? ['merge', `merge of ${refOf(pr)}`, 'human']
+      : ['merge', `merge of ${refOf(pr)} or close it unmerged`, 'human'];
+  if (work.hasOpenLinkedPr) return ['merge', 'an open linked PR to merge or close', 'human'];
+  if (work.liveWorker) return ['work', 'the worker session to end, with no open PR', null];
+  // The ticket is finished; what absenceReady still misses is fresh, complete, unblind polls.
+  return ['board', 'fresh polls of Spur and every GitHub repository since the last change', null];
 }
 
-/**
- * What a task waits for before work starts: with a done ticket, completion; after a reopen, an
- * open PR, since a live worker no longer counts.
- */
-function workWait(work: WorkFacts): Wait {
-  if (work.ticketDone) return withoutOpenPr(work);
-  return work.reopened
+/** What work start waits for: after a reopen only an open PR counts. */
+const workToStart = (work: WorkFacts): Wait =>
+  work.reopened
     ? ['work', 'work to start: an open PR (the ticket was reopened)', null]
     : ['work', 'work to start: an open PR or a live worker', null];
-}
 
 /** The waits-for line of each fact GitHub or the board has not settled, by its gate reason. */
 const WAITING: Partial<Record<GateReason, (entry: Waiting, pr: PrRef | null) => WaitsFor>> = {
@@ -152,10 +159,14 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
     );
   if (facts.gate === null) return wait('board', 'the first poll of the linked PR');
   const { holds, gate, column, project, pr } = facts;
-  if (holds.includes('github_blind')) return wait('github', 'GitHub to be readable');
+  // Only a blind GitHub and a pending submit stop completion (dispatch() returns before it), and an
+  // unconfirmed ticket keeps the pass off the task. Completion runs before any gate or turn.
+  if (facts.work.githubBlind) return wait('github', 'GitHub to be readable');
   if (holds.includes('submit_pending'))
     return wait('board', `confirmation of submit ${(facts.pendingSha ?? '').slice(0, 7)}`);
   if (holds.includes('ticket_unconfirmed')) return wait('ticket', 'ticket to close');
+  if (column !== 'done' && completes(pr, facts.work))
+    return wait(...completionWait(pr, facts.work));
   if (holds.includes('cycle_limit')) {
     const [first] = facts.heldBlocks;
     return first === undefined
@@ -168,18 +179,17 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
   }
   if (facts.turn !== null) return turnWait(facts.turn);
   if (holds.includes('spur_blind')) return wait('spur', 'Spur to be readable');
-  if (holds.includes('work_not_started')) return wait(...workWait(facts.work));
+  if (holds.includes('work_not_started')) return wait(...workToStart(facts.work));
   const [waiting] = facts.waiting;
   const fact = waiting === undefined ? undefined : WAITING[waiting.reason]?.(waiting, pr);
   if (fact !== undefined) return fact;
   if (column === 'done') return wait('done', 'nothing, the task is done');
   if (gate.ok) {
     const next = nextColumn(project, column);
-    if (pr?.state === 'merged') return wait('board', NEXT_PASS_TO_DONE);
     if (next === undefined || next === 'done')
       return pr?.state === 'open'
         ? wait('merge', `merge of ${refOf(pr)}`, 'human')
-        : wait(...withoutOpenPr(facts.work));
+        : wait('ticket', TICKET_WITHOUT_WORK);
     return wait('board', `the next dispatcher pass to move it to ${next}`);
   }
   if (gate.column === column) {
@@ -208,24 +218,22 @@ export function gateWaitsFor(
   },
 ): string | undefined {
   if (facts.archived) return undefined;
-  const { ticketDone, liveWorker } = facts.work;
   if (gate.column === 'done' && gate.enabled && facts.column !== 'done') {
-    const ref = refOf(facts.pr);
-    // A done ticket completes the task once its PR is closed too, with no live worker.
-    if (facts.pr?.state === 'open')
-      return !ticketDone
-        ? `merge of ${ref}, then the ticket to close`
-        : liveWorker
-          ? `merge of ${ref}`
-          : `merge of ${ref}, or close it unmerged`;
-    if (facts.pr?.state === 'merged') return ticketDone ? NEXT_PASS_TO_DONE : 'ticket to close';
-    return withoutOpenPr(facts.work)[1];
+    if (facts.holds.includes('ticket_unconfirmed')) return 'ticket to close';
+    if (completes(facts.pr, facts.work)) return completionWait(facts.pr, facts.work)[1];
+    return facts.pr?.state === 'open'
+      ? `merge of ${refOf(facts.pr)}, then the ticket to close`
+      : TICKET_WITHOUT_WORK;
   }
   if (
     isTodoGroupColumn(gate.column) &&
     gate.column === facts.column &&
     facts.holds.includes('work_not_started')
   )
-    return workWait(facts.work)[1];
+    return (
+      completes(facts.pr, facts.work)
+        ? completionWait(facts.pr, facts.work)
+        : workToStart(facts.work)
+    )[1];
   return undefined;
 }

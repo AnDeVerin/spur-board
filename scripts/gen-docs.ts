@@ -105,7 +105,7 @@ function setupExample(path: string, command: CliCommand): string {
 const WAITS_FOR_ROWS: Record<WaitsForKind, string> = {
   turn: 'An open turn: `Review turn T4 (orchestrator:review)`; `actor` is its addressee, or `operator` once the operator took it over. A waiting holder adds `, waiting until <time> for <reason>`.',
   merge:
-    'A human merges the PR, `merge of acme/web#42 (a human)`, or merges or closes another open linked PR.',
+    'A human merges the PR, `merge of acme/web#42 (a human)`; with a done ticket and no live worker, `merge of acme/web#42 or close it unmerged (a human)`, or another open linked PR to merge or close.',
   approval:
     'A human approval on GitHub: an external review, required reviewers, the review rule or a new review after requested changes.',
   ticket:
@@ -114,7 +114,7 @@ const WAITS_FOR_ROWS: Record<WaitsForKind, string> = {
   github: 'GitHub to be readable, or to compute mergeability, the merge state or the review rule.',
   spur: 'Spur to be readable.',
   board:
-    'The board: the first poll of the PR, a submit confirmation, the full comment history or the next dispatcher pass.',
+    'The board: the first poll of the PR, a submit confirmation, the full comment history, fresh polls of Spur and every GitHub repository before a done ticket completes the task, or the next dispatcher pass.',
   answer:
     'An answer to the blocks of an open cycle-limit or course-check item: `answer to B4 (curator)`.',
   work: 'Work to start in the To Do group, `work to start: an open PR or a live worker` (only an open PR after a reopen), or a worker session to end before a done ticket completes the task.',
@@ -154,7 +154,7 @@ export function renderCliDocs(): string {
     '',
     '## Why a task waits',
     '',
-    '`board task <task> --why` starts with `why.waitsFor`: what the task waits for and who acts next. On a terminal its first line is `waits for: <text>`. `text` ends with the actor in parentheses when one acts next, `actor` is that role, `human` for a person on GitHub, or null when the board, GitHub or Spur settles it. An enabled Done gate of a task not in Done, and the To Do group gate of the column a task sits in before work starts, carry a `waitsFor` text too. On a terminal `--why` leaves out the gates of disabled columns; `--all` lists them. `--json` and output that is not a terminal always list every column.',
+    '`board task <task> --why` starts with `why.waitsFor`: what the task waits for and who acts next. With a done ticket or a merged PR, completion bypasses every gate and turn, so `waitsFor` and the Done gate name what completion still needs. On a terminal its first line is `waits for: <text>`. `text` ends with the actor in parentheses when one acts next, `actor` is that role, `human` for a person on GitHub, or null when the board, GitHub or Spur settles it. An enabled Done gate of a task not in Done, and the To Do group gate of the column a task sits in before work starts, carry a `waitsFor` text too. On a terminal `--why` leaves out the gates of disabled columns; `--all` lists them. `--json` and output that is not a terminal always list every column.',
     '',
     '| `waitsFor.kind` | Meaning |',
     '| --- | --- |',

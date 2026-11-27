@@ -1,5 +1,6 @@
 import { COLUMN_IDS, WAITS_FOR_KINDS, type ColumnId } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
+import { COMPLETION_RULE } from '../../src/domain/dispatch.ts';
 import type { GateProject } from '../../src/domain/gates.ts';
 import {
   gateWaitsFor,
@@ -26,12 +27,16 @@ const closed: PrRef = { ...open, state: 'closed' };
 type Read = Extract<WaitsForFacts, { column: ColumnId }>;
 type Work = Read['work'];
 
-/** Nothing reopened, the ticket open and no live worker, with `changes` over it. */
+/** Nothing reopened, the ticket open, no live worker and fresh polls, with `changes` over it. */
 const work = (changes: Partial<Work> = {}): Work => ({
   reopened: false,
+  githubBlind: false,
   ticketDone: false,
   liveWorker: false,
   hasOpenLinkedPr: false,
+  allGithubReposReady: true,
+  spurReady: true,
+  spurBlind: false,
   ...changes,
 });
 
@@ -96,7 +101,7 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
   ],
   [
     'github_blind',
-    facts({ holds: ['github_blind', 'submit_pending'] }),
+    facts({ holds: ['github_blind', 'submit_pending'], work: work({ githubBlind: true }) }),
     { kind: 'github', text: 'GitHub to be readable', actor: null },
   ],
   [
@@ -183,16 +188,6 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
     { kind: 'work', text: 'work to start: an open PR (the ticket was reopened)', actor: null },
   ],
   [
-    'work_not_started after a reopen, the ticket done again, worker live',
-    facts({
-      column: 'todo',
-      holds: ['work_not_started'],
-      pr: null,
-      work: work({ reopened: true, ticketDone: true, liveWorker: true }),
-    }),
-    { kind: 'work', text: 'the worker session to end, with no open PR', actor: null },
-  ],
-  [
     'checks_pending',
     waitingOn('checks_pending'),
     { kind: 'checks', text: 'CI on 01234567', actor: null },
@@ -260,11 +255,6 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
     { kind: 'merge', text: 'merge of o/r#7 (a human)', actor: 'human' },
   ],
   [
-    'gate ok, PR merged',
-    facts({ pr: merged }),
-    { kind: 'board', text: 'the next dispatcher pass to move it to done', actor: null },
-  ],
-  [
     'gate ok, next is Done, no PR',
     facts({ pr: null }),
     {
@@ -272,21 +262,6 @@ const rows: [string, WaitsForFacts, WaitsFor][] = [
       text: 'ticket to close, with no open PR and no live worker',
       actor: null,
     },
-  ],
-  [
-    'gate ok, next is Done, no PR, ticket done, worker live',
-    facts({ pr: null, work: work({ ticketDone: true, liveWorker: true }) }),
-    { kind: 'work', text: 'the worker session to end, with no open PR', actor: null },
-  ],
-  [
-    'gate ok, next is Done, PR closed, ticket done, another linked PR open',
-    facts({ pr: closed, work: work({ ticketDone: true, hasOpenLinkedPr: true }) }),
-    { kind: 'merge', text: 'an open linked PR to merge or close (a human)', actor: 'human' },
-  ],
-  [
-    'gate ok, next is Done, no PR, ticket done, nothing live',
-    facts({ pr: null, work: work({ ticketDone: true }) }),
-    { kind: 'board', text: 'the next dispatcher pass to move it to done', actor: null },
   ],
   [
     'gate ok, next is Done, PR closed',
@@ -361,43 +336,12 @@ describe('gateWaitsFor', () => {
   it.each([
     ['done, PR open, ticket open', done, base, 'merge of o/r#7, then the ticket to close'],
     [
-      'done, PR open, ticket done, worker live',
+      'done, PR merged, ticket unconfirmed',
       done,
-      { ...base, work: work({ ticketDone: true, liveWorker: true }) },
-      'merge of o/r#7',
-    ],
-    [
-      'done, PR open, ticket done, nothing live',
-      done,
-      { ...base, work: work({ ticketDone: true }) },
-      'merge of o/r#7, or close it unmerged',
-    ],
-    ['done, PR merged', done, { ...base, pr: merged }, 'ticket to close'],
-    [
-      'done, PR merged, ticket done',
-      done,
-      { ...base, pr: merged, work: work({ ticketDone: true }) },
-      'the next dispatcher pass to move it to done',
+      { ...base, pr: merged, holds: ['ticket_unconfirmed'] as const },
+      'ticket to close',
     ],
     ['done, no PR', done, noPr, 'ticket to close, with no open PR and no live worker'],
-    [
-      'done, no PR, ticket done, worker live',
-      done,
-      { ...noPr, work: work({ ticketDone: true, liveWorker: true }) },
-      'the worker session to end, with no open PR',
-    ],
-    [
-      'done, PR closed, ticket done, another linked PR open',
-      done,
-      { ...base, pr: closed, work: work({ ticketDone: true, hasOpenLinkedPr: true }) },
-      'an open linked PR to merge or close',
-    ],
-    [
-      'done, no PR, ticket done, nothing live',
-      done,
-      { ...noPr, work: work({ ticketDone: true }) },
-      'the next dispatcher pass to move it to done',
-    ],
     [
       'the To Do group column the task sits in before work starts',
       { column: 'todo', enabled: true },
@@ -409,16 +353,6 @@ describe('gateWaitsFor', () => {
       { column: 'todo', enabled: true },
       { ...notStarted, pr: null, work: work({ reopened: true }) },
       'work to start: an open PR (the ticket was reopened)',
-    ],
-    [
-      'the To Do group column after a reopen, the ticket done again, worker live',
-      { column: 'todo', enabled: true },
-      {
-        ...notStarted,
-        pr: null,
-        work: work({ reopened: true, ticketDone: true, liveWorker: true }),
-      },
-      'the worker session to end, with no open PR',
     ],
     ['a disabled Done gate', { column: 'done', enabled: false }, base, undefined],
     ['the Done gate of an archived task', done, { ...base, archived: true }, undefined],
@@ -439,4 +373,83 @@ describe('gateWaitsFor', () => {
   ] as const)('%s', (_name, gate, input, expected) => {
     expect(gateWaitsFor(gate, input)).toBe(expected);
   });
+});
+
+describe('completion waits', () => {
+  const NEXT = 'the next dispatcher pass to move it to done';
+  const PRS = { none: null, open, closed, merged } as const;
+  const POLLS = {
+    fresh: {},
+    'GitHub stale': { allGithubReposReady: false },
+    'Spur stale': { spurReady: false },
+    'Spur blind': { spurBlind: true },
+  } as const;
+  const cases = [false, true].flatMap((ticketDone) =>
+    (Object.keys(PRS) as (keyof typeof PRS)[]).flatMap((pr) =>
+      [false, true].flatMap((hasOpenLinkedPr) =>
+        [false, true].flatMap((liveWorker) =>
+          (Object.keys(POLLS) as (keyof typeof POLLS)[])
+            // An open judged PR is an open linked PR.
+            .filter(() => pr !== 'open' || hasOpenLinkedPr)
+            .map((polls) => ({ ticketDone, pr, hasOpenLinkedPr, liveWorker, polls })),
+        ),
+      ),
+    ),
+  );
+  /** The completion text by the first unmet condition, or null when completion does not judge. */
+  function expected(c: (typeof cases)[number]): string | null {
+    if (!c.ticketDone && c.pr !== 'merged') return null;
+    if (c.pr === 'merged') return NEXT;
+    if (c.pr === 'open')
+      return c.liveWorker ? 'merge of o/r#7' : 'merge of o/r#7 or close it unmerged';
+    if (c.hasOpenLinkedPr) return 'an open linked PR to merge or close';
+    if (c.liveWorker) return 'the worker session to end, with no open PR';
+    return c.polls === 'fresh'
+      ? NEXT
+      : 'fresh polls of Spur and every GitHub repository since the last change';
+  }
+  const bare = (wait: WaitsFor) => wait.text.replace(/ \(a human\)$/, '');
+
+  it.each(cases)(
+    'ticket done $ticketDone, PR $pr, linked PR open $hasOpenLinkedPr, worker $liveWorker, polls $polls',
+    (c) => {
+      const pr = PRS[c.pr];
+      const w = work({
+        ticketDone: c.ticketDone,
+        hasOpenLinkedPr: c.hasOpenLinkedPr,
+        liveWorker: c.liveWorker,
+        ...POLLS[c.polls],
+      });
+      const text = expected(c);
+      const turn = {
+        id: 'T2',
+        column: 'review',
+        addressee: 'orchestrator:review',
+        byOperator: false,
+      } as const;
+      // Completion bypasses a failing gate and an open turn, and work start in the To Do group.
+      const inReview = waitsFor(
+        facts({ gate: failing('review', 'no_review_on_head'), turn, pr, work: w }),
+      );
+      const inTodo = waitsFor(facts({ column: 'todo', holds: ['work_not_started'], pr, work: w }));
+      const doneGate = gateWaitsFor(
+        { column: 'done', enabled: true },
+        { column: 'review', holds: [], pr, archived: false, work: w },
+      );
+      if (text === null) {
+        expect(inReview.kind).toBe('turn');
+        expect(inTodo.kind).toBe('work');
+        expect(doneGate).toBe(
+          pr?.state === 'open'
+            ? 'merge of o/r#7, then the ticket to close'
+            : 'ticket to close, with no open PR and no live worker',
+        );
+      } else {
+        expect(bare(inReview)).toBe(text);
+        expect(bare(inTodo)).toBe(text);
+        expect(doneGate).toBe(text);
+      }
+      expect(doneGate === NEXT).toBe(COMPLETION_RULE.reason(pr, w) !== null);
+    },
+  );
 });
