@@ -195,15 +195,26 @@ describe('public guide contents', () => {
   });
 
   it.each([
-    ['missing verdict after takeover', /comment is missing after an operator takeover/],
-    ['stale verdict on the same turn', /comment .* still shows an earlier verdict/],
-    ['another Review turn on the same SHA', /latest reviewer comment for the current head/],
+    ['missing verdict after takeover', [/comment is missing after an operator takeover/]],
+    ['stale verdict on the same turn', [/comment .* still shows an earlier verdict/]],
+    [
+      'another Review turn on the same SHA',
+      [/latest reviewer comment for the current head/, /use its turn ID to match the notes/],
+    ],
+    [
+      'a new push after review',
+      [
+        /--why --refresh/,
+        /--json headRefOid --jq '\.headRefOid'/,
+        /the refresh fails or the SHAs differ/,
+      ],
+    ],
   ])('uses the Board outcome: %s', (_, guidance) => {
     const merge = flat(step(9));
-    expect(merge).toMatch(guidance);
+    for (const rule of guidance) expect(merge).toMatch(rule);
     expect(merge).toContain('use the submitted turn in History for the outcome');
     expect(merge).toContain(
-      'When the Board reports the `review_on_head` gate met on the current head, press the merge button.',
+      'When the Board reports the `review_on_head` gate met on the current head and the submitted SHA matches GitHub, press the merge button.',
     );
   });
 

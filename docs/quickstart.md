@@ -286,13 +286,21 @@ find the submitted turn in History. If you have a comment, use its turn ID to ma
 to that submission:
 
 ```text
-Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
-Run board task history example-org/example-repo#<N> and tell me which Review turn submitted the current head.
+Run board task example-org/example-repo#<N> --why --refresh and tell me whether the review_on_head gate is met on the refreshed head.
+Run board task history example-org/example-repo#<N> and tell me which Review turn submitted that head and what full SHA it submitted.
 ```
 
 If the comment is missing after an operator takeover or it still shows an earlier verdict,
-use the submitted turn in History for the outcome. When the Board reports the `review_on_head`
-gate met on the current head, press the merge button.
+use the submitted turn in History for the outcome. Just before merging, read the head SHA from
+GitHub:
+
+```sh
+gh pr view <PR> --repo example-org/example-repo --json headRefOid --jq '.headRefOid'
+```
+
+When the Board reports the `review_on_head` gate met on the current head and the submitted SHA
+matches GitHub, press the merge button. If the refresh fails or the SHAs differ, recheck the
+gate and the head before merging.
 [Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
