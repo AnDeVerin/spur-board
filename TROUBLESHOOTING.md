@@ -488,8 +488,10 @@ project; a `board-worker` link label works from any Spur project.
   worktree, or to home outside git; home itself is never searched, even as a worktree root. A
   token above the worktree root or in home is not used: create one in a folder inside the
   worktree or set `BOARD_TOKEN`. Run the command in a Spur
-  session of a project listed in `config.yaml`, or run
-  `board token create --name <name> --into <folder>` and approve the request in Slack. When
+  session of a project listed in `config.yaml`, or send that session the request with
+  `spur send <session id> "<request>"`. With Slack (`slack.channels` set in `config.yaml`), you
+  can instead run `board token create --name <name> --into <folder>` and ask the operator to
+  approve the request in Slack. When
   `<folder>/.spur-board/token` already exists, `board token create` replaces it only if the
   daemon reports that token expired or denied; an approved, pending, revoked or unknown token
   stays in place and the command fails with `config`, naming the file and the fix. An

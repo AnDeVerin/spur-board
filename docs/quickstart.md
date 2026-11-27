@@ -195,7 +195,12 @@ gh issue create --repo example-org/example-repo --title "Add a hello script" --b
 ```
 
 `gh` prints the issue URL; its number is `<N>` below. The Board polls GitHub issues about every
-two minutes. After that, in the `example-operator` session, ask it to run `board status`:
+two minutes. After that, in the `example-operator` session, ask it to run `board status`.
+
+The CLI takes its identity from the Spur session it runs in, so `board status` in a plain shell
+fails with `identity_missing`. Type the request in the `example-operator` session, or send it from
+a shell with `spur send <session id> "…"` and read the reply by opening the session from
+`spur list`, which also shows the session id:
 
 ```text
 Run board status and tell me the column of example-org/example-repo#<N>.
@@ -294,12 +299,16 @@ it by hand. A token that cannot read the merge:
 In the `example-operator` session, ask it to run `board status`:
 
 ```text
-Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
+Run board status and tell me the column and turn reason of example-org/example-repo#<N>. Then run
+board task example-org/example-repo#<N> --why and board task history example-org/example-repo#<N>
+and tell me whether the task has an open turn and how its done: wrap up turn closed.
 ```
 
 **Success looks like:** `example-operator` reports the task in `done`. While the worker is still
-wrapping up, the task also has an open turn with the reason `done: wrap up`; once the worker
-finishes, the task stays in `done` with no open turn.
+wrapping up, the task also has an open turn with the reason `done: wrap up`. The worker closes
+that turn with `board submit` at the head the turn names; an ack alone leaves it open. Then the
+task stays in `done` with no open turn, and the history lists the wrap-up turn's `turn_closed`
+with outcome `submitted`.
 
 **If it fails:** a task that stays in Review after the merge reads `waits for: ticket to close`:
 check that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.

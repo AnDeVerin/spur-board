@@ -22,6 +22,7 @@ import {
 import { z } from 'zod';
 import { fetchTokenStatus, requestOperation, requestTokenEnrollment } from './client.ts';
 import {
+  boardSlackState,
   configFile,
   loadClientConfig,
   loadEnrollmentConfig,
@@ -150,10 +151,18 @@ function shellValue(value: unknown): string {
 }
 
 /** The identity an operation in the selected input mode needs, when only one kind of caller can run it. */
-function identityHint(op: CatalogOperation, mode: string | undefined): string | undefined {
+function identityHint(
+  op: CatalogOperation,
+  mode: string | undefined,
+  slack: boolean | undefined,
+): string | undefined {
   const flag = op.cli.modes?.find((item) => item.mode === mode)?.flag;
   const command = `\`board ${op.cli.command}${flag ? ` ${flag}` : ''}\``;
   if (!roleCanUseOperation(op, 'worker', mode) && !roleCanUseOperation(op, 'orchestrator', mode)) {
+    // Only a known no-Slack config drops the Slack token route.
+    if (slack === false) {
+      return `${command} needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or send that session the request with \`spur send <session id> "<request>"\`.`;
+    }
     return `${command} needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or run \`board token create --name <name> --into <folder>\` and ask the operator to approve the request in Slack.`;
   }
   if (!roleCanUseOperation(op, 'operator', mode)) {
@@ -170,6 +179,7 @@ function loadOperationConfig(
   try {
     return loadClientConfig(env);
   } catch (error) {
+    if (!(error instanceof CliError) || error.code !== 'identity_missing') throw error;
     const mode =
       typeof input === 'object' &&
       input !== null &&
@@ -177,10 +187,8 @@ function loadOperationConfig(
       typeof input.mode === 'string'
         ? input.mode
         : undefined;
-    const hint = identityHint(op, mode);
-    if (error instanceof CliError && error.code === 'identity_missing' && hint) {
-      throw new CliError(error.code, error.context, error.requestId, hint);
-    }
+    const hint = identityHint(op, mode, boardSlackState(env, homedir()));
+    if (hint) throw new CliError(error.code, error.context, error.requestId, hint);
     throw error;
   }
 }

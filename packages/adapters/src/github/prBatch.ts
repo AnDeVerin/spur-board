@@ -21,7 +21,10 @@ import {
   contextName,
   contextWire,
   latestContexts,
+  skipDecision,
+  suiteListWire,
   type ContextWire,
+  type SuiteListWire,
 } from './checks.ts';
 import { branchRuleOf, branchRuleWire } from './branchRule.ts';
 import {
@@ -110,7 +113,7 @@ const prWire = z.object({
   author: actor,
   headRefName: z.string(),
   headRefOid: z.string(),
-  statusCheckRollup: z.object({ contexts: nodes(contextWire) }).nullish(),
+  statusCheckRollup: z.object({ contexts: nodes(contextWire), commit: suiteListWire }).nullish(),
   reviews: nodes(reviewWire),
   comments: nodes(commentWire),
   reviewThreads: nodes(threadWire),
@@ -214,16 +217,29 @@ export function closingRefs(wire: ClosingWire): ClosingRef[] {
   );
 }
 
-function latestChecks(nodes: readonly ContextWire[]): {
+// A required check skipped in one run reads as the newest suite of its workflow and event decides
+// (see `skipDecision`).
+function latestChecks(
+  nodes: readonly ContextWire[],
+  commit: SuiteListWire,
+): {
   checks: PrFacts['checks'];
   requiredChecks: PrFacts['requiredChecks'];
 } {
+  const visible = (
+    node: ContextWire,
+  ): Pick<PrFacts['checks'][number], 'state' | 'completedAt'> => ({
+    state: checkState(node),
+    completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
+  });
+  const shown = (node: ContextWire): Pick<PrFacts['checks'][number], 'state' | 'completedAt'> => {
+    const decided = skipDecision(node, nodes, commit);
+    return decided === 'pending'
+      ? { state: 'pending', completedAt: null }
+      : visible(decided ?? node);
+  };
   const values = latestContexts(nodes).map((node) => ({
-    check: {
-      name: contextName(node),
-      state: checkState(node),
-      completedAt: node.__typename === 'StatusContext' ? null : node.completedAt,
-    },
+    check: { name: contextName(node), ...shown(node) },
     required: node.isRequired === true,
   }));
   return {
@@ -440,7 +456,10 @@ export function normalizePr(
   held: readonly PrFeedback[] = [],
 ): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
-  const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
+  const checks = latestChecks(
+    wire.statusCheckRollup?.contexts.nodes ?? [],
+    wire.statusCheckRollup?.commit,
+  );
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';
   const mergeable =
     wire.mergeable === 'MERGEABLE'

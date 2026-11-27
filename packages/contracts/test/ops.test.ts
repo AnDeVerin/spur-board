@@ -1076,12 +1076,13 @@ describe('snapshot', () => {
     // linked PR: optional sha, nullable output sha, the submit_sha_required code, the optional
     // task_submitted sha and task.get why.submittedWithoutCommit; the basis and from fields, the
     // submit_basis_invalid hint and the task.submit guidance say to omit basis and from there.
-    // #903 rewords the status.get services[].lastGoodAt description for a gateway. #910 adds the
-    // required task.get why.waitsFor, the optional gates[].waitsFor, the optional cli.view binding
-    // and its schema.get field, and rewords the task.get guidance, why and gates descriptions;
-    // its waitsFor.kind also names archived, and why.waitsFor is optional for older daemons.
+    // #903 rewords the status.get services[].lastGoodAt description for a gateway. #911 rewords
+    // the identity_missing hint: a Spur session or spur send first, the Slack token route only
+    // with Slack. #910 adds task.get why.waitsFor (optional for older daemons, its kind naming
+    // archived), the optional gates[].waitsFor and the cli.view binding, and rewords the task.get
+    // guidance, why and gates descriptions.
     expect(await catalogVersion(baseline)).toBe(
-      'd0139bde00e7a270c8f205cf32237bda9d888834237fc834a5608d471d74639e',
+      '9a373dee285fd031da7720089c29fd8172d9f9f333165d9a0501825b189c2e95',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>
