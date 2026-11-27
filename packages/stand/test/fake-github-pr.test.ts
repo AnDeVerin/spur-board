@@ -900,6 +900,19 @@ describe('default branch', () => {
     expect((await pollRepo(fakes, BOARD)).defaultBranch).toMatchObject({ state: 'green' });
   });
 
+  it('looks back seven first parents for the most recent checked default-branch commit', async () => {
+    expect(branch({ repo: BOARD, state: 'red' }).status).toBe(200);
+    const head = await runs();
+    for (let i = 0; i < 7; i += 1)
+      expect(branch({ repo: BOARD, state: 'unchecked' }).status).toBe(200);
+    expect((await pollRepo(fakes, BOARD)).defaultBranch).toMatchObject({
+      state: 'red',
+      sha: head?.target.oid,
+    });
+    expect(branch({ repo: BOARD, state: 'unchecked' }).status).toBe(200);
+    expect((await pollRepo(fakes, BOARD)).defaultBranch).toBeUndefined();
+  });
+
   it('refuses a bad branch request and keeps heads through state and restore', async () => {
     expect(branch({ repo: BOARD, state: 'amber' }).status).toBe(400);
     expect(branch({ repo: 'stand-org/other', state: 'red' }).status).toBe(400);

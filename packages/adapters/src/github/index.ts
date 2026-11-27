@@ -35,6 +35,7 @@ import {
 } from './client.ts';
 import {
   baselineNodeWire,
+  branchScoped,
   defaultBranchFact,
   discover,
   discoveryNodeWire,
@@ -668,8 +669,6 @@ interface DiscoveryResult {
   bootstrapCursor: SourceCursor | undefined;
   defaultBranch: Batch['defaultBranch'];
 }
-// An error under `repository.defaultBranchRef` drops only the default-branch fact.
-const branchScoped = (error: GraphError): boolean => error.path?.[1] === 'defaultBranchRef';
 /**
  * Lists the repository's PRs since the cursor; a transient failure leaves `ok` false. The first
  * response also gives the default-branch colour, whatever the PR listing's outcome.
@@ -691,10 +690,10 @@ async function readDiscovery(
     };
   acc.budget = response.budget;
   const errors = response.errors.filter((error) => !branchScoped(error));
-  const defaultBranch =
-    errors.length === response.errors.length
-      ? defaultBranchFact(response.data.repository)
-      : undefined;
+  const defaultBranch = defaultBranchFact(
+    response.data.repository,
+    response.errors.filter(branchScoped),
+  );
   rejectUnscoped(errors, ['repository']);
   let ok = scoped(errors, 'repository').length === 0;
   const first = ok

@@ -13,7 +13,7 @@ import {
   type Verb,
 } from './github-pr-control.ts';
 import type { IssueProject } from './github-issues.ts';
-import { rollupState } from './github-pr-rollup.ts';
+import { branchCheckRun, rollupState } from './github-pr-rollup.ts';
 import { KNOWN_SHAPES } from './github-pr-shapes.ts';
 import { projectIssuesView, projectOwnerView } from './github-project.ts';
 import {
@@ -31,6 +31,10 @@ const GRAPHQL_URL = 'https://api.github.com/graphql';
 const AGENT = 'stand-agent';
 const REVIEWER = 'stand-reviewer';
 const BOT = 'stand-bot';
+interface BranchCommit {
+  sha: string;
+  contexts: ReturnType<typeof branchCheckRun>[];
+}
 
 function page(connection: string, items: readonly Wire[], args: Args): WireObject {
   // The variable check has already made a given `after` a string.
@@ -85,8 +89,8 @@ export function createGithubPrFake(options: {
   const { now } = options;
   const repos = new Set(options.repos.map((repo) => repo.toLowerCase()));
   const prs = new Map<string, Pr>();
-  // The default-branch head of each repository by lowercase name; none until `branch` sets one.
-  const branches = new Map<string, { sha: string; contexts: Wire[] }>();
+  // Default-branch commits in head-first order, by lowercase repository name.
+  const branches = new Map<string, BranchCommit[]>();
   let heads = 0;
   // Not part of `state`: a restore keeps the requests answered so far.
   const requests = createRequestLog(now);
@@ -345,6 +349,29 @@ export function createGithubPrFake(options: {
     };
   }
 
+  function branchCommitView(commits: readonly BranchCommit[], index: number): WireObject | null {
+    const commit = commits[index];
+    if (commit === undefined) return null;
+    return {
+      __typename: 'Commit',
+      oid: commit.sha,
+      statusCheckRollup:
+        commit.contexts.length === 0
+          ? null
+          : { contexts: (args: Args) => page('contexts', commit.contexts, args) },
+      checkSuites: (args: Args) =>
+        page(
+          'checkSuites',
+          commit.contexts.map(({ checkSuite }) => checkSuite),
+          args,
+        ),
+      parents: () => {
+        const parent = branchCommitView(commits, index + 1);
+        return { nodes: parent === null ? [] : [parent] };
+      },
+    };
+  }
+
   function repositoryView(owner: unknown, name: unknown): WireObject {
     const repo = `${String(owner)}/${String(name)}`;
     if (!repos.has(repo.toLowerCase())) throw new FakeViolation(`Unknown repository ${repo}.`);
@@ -352,18 +379,7 @@ export function createGithubPrFake(options: {
     const branch = branches.get(repo.toLowerCase());
     return {
       defaultBranchRef:
-        branch === undefined
-          ? null
-          : {
-              name: 'main',
-              target: {
-                __typename: 'Commit',
-                oid: branch.sha,
-                statusCheckRollup: {
-                  contexts: (args: Args) => page('contexts', branch.contexts, args),
-                },
-              },
-            },
+        branch === undefined ? null : { name: 'main', target: branchCommitView(branch, 0) },
       issues: (args: Args) => projectIssuesView(repo, args, options.issueProjects),
       // Newest first, which the adapter's scan relies on to stop at its cursor.
       pullRequests: (args: Args) => {
@@ -402,25 +418,15 @@ export function createGithubPrFake(options: {
     const sha = createHash('sha1')
       .update(`${repo.toLowerCase()}:${String(heads)}`)
       .digest('hex');
-    const run = (name: string, conclusion: string, event: string): Wire => ({
-      __typename: 'CheckRun',
-      name,
-      status: 'COMPLETED',
-      conclusion,
-      startedAt: at,
-      completedAt: at,
-      detailsUrl: `https://github.stand.invalid/${repo}/actions/runs/${String(heads)}`,
-      checkSuite: {
-        createdAt: at,
-        workflowRun: {
-          event,
-          workflow: { id: event === 'push' ? 'W_stand_ci' : 'W_stand_nightly' },
-        },
-      },
-    });
-    const contexts = [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
+    const detailsUrl = `https://github.stand.invalid/${repo}/actions/runs/${String(heads)}`;
+    const run = (name: string, conclusion: string, event: string) =>
+      branchCheckRun(name, conclusion, event, at, detailsUrl);
+    const contexts =
+      state === 'unchecked' ? [] : [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
     if (scheduledFailure !== undefined) contexts.push(run(scheduledFailure, 'FAILURE', 'schedule'));
-    branches.set(repo.toLowerCase(), { sha, contexts });
+    const branch = branches.get(repo.toLowerCase()) ?? [];
+    branch.unshift({ sha, contexts });
+    branches.set(repo.toLowerCase(), branch);
     return { status: 200, body: { repo, branch: 'main', sha, state } };
   }
 

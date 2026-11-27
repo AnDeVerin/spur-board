@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { startAdapters, type PollFailure } from '@spur-board/adapters';
 import { createFakeCore, type FakeCore } from '@spur-board/adapters/testing';
 import { configSchema, type Batch, type Config } from '@spur-board/contracts';
+import { parse, visit } from 'graphql';
 import { describe, expect, it } from 'vitest';
 import { createFakeSpur } from '../src/fake-spur.ts';
 import { createFakes } from '../src/fakes/fetch.ts';
@@ -125,6 +126,18 @@ function replayConfig(): Config {
   return configSchema.parse(raw);
 }
 
+function omitDefaultBranchSelection(query: string): string {
+  if (!query.includes(' defaultBranchRef {')) return query;
+  let legacy = query;
+  visit(parse(query), {
+    Field({ name, loc }) {
+      if (name.value === 'defaultBranchRef' && loc !== undefined)
+        legacy = legacy.replace(` ${query.slice(loc.start, loc.end)}`, '');
+    },
+  });
+  return legacy;
+}
+
 /** Ignore only the newly selected optional cost and limit, comment body, links, edits, thread
  * id, outdated flag and inline comments, a check run's suite id and workflow or app, the head
  * commit's check suites, and the default branch when replaying older recorded requests. The
@@ -138,11 +151,7 @@ function replayBody(body: Json): string {
   if (isObject(body) && typeof body['query'] === 'string')
     return canonical({
       ...body,
-      query: body['query']
-        .replace(
-          ' defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }',
-          '',
-        )
+      query: omitDefaultBranchSelection(body['query'])
         .replaceAll(
           ' commit { checkSuites(first: 100) { nodes { id status createdAt workflowRun { event runNumber runAttempt workflow { id } } } pageInfo { hasNextPage } } }',
           '',

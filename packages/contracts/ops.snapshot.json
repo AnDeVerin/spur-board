@@ -1,5 +1,5 @@
 {
-  "version": "c5968dab449affb027c7dd68368b2f680e7d1a600fce154c0070999571ab19c7",
+  "version": "29dfe9f393b51f6c09c8b65314e3900202eeea20afdeb15b74f96698a5bf3c06",
   "grants": [
     "operator",
     "project-agent",
@@ -1846,7 +1846,7 @@
                   "description": "Whether this source needs a complete poll in this daemon run."
                 },
                 "defaultBranch": {
-                  "description": "GitHub pull request sources only: the default-branch colour, red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed (scheduled and other runs ignored, branch protection not read); null until a poll reads it.",
+                  "description": "GitHub pull request sources only. The stored default-branch colour from the newest checked commit in the poll window, or null until a poll reads a settled result.",
                   "anyOf": [
                     {
                       "type": "object",
@@ -1859,12 +1859,12 @@
                         "state": {
                           "type": "string",
                           "enum": ["red", "green"],
-                          "description": "Colour of the default-branch head."
+                          "description": "Last settled colour read for the default branch."
                         },
                         "sha": {
                           "type": "string",
                           "pattern": "^[0-9a-f]{40,64}$",
-                          "description": "Head commit when this colour was first read; while red, the first red commit."
+                          "description": "Checked commit when this colour was first read. While red, the first red commit."
                         },
                         "since": {
                           "type": "string",
@@ -1876,7 +1876,7 @@
                           "type": "string",
                           "format": "date-time",
                           "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-                          "description": "When a poll last read this colour; a poll that reads no colour keeps it."
+                          "description": "When a poll last read this colour, including via a checked parent of an unchecked head. A poll without a settled result keeps this time."
                         },
                         "check": {
                           "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
@@ -1897,7 +1897,7 @@
                         "url"
                       ],
                       "additionalProperties": false,
-                      "description": "Colour of the default-branch head. It is red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read."
+                      "description": "Colour of the newest commit with a commit status or push-triggered workflow among the default-branch head and its seven nearest first parents. A push suite counts before its check runs appear. Red means a failed commit status or a latest push-workflow check with a completed result other than success, neutral or skipped. Scheduled, manual and non-workflow checks are ignored, and branch protection is not read. A poll without a settled result keeps the stored colour and operator item."
                     },
                     { "type": "null" }
                   ]

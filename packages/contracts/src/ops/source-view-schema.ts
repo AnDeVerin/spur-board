@@ -2,23 +2,25 @@ import { z } from 'zod';
 import { MIRROR_FAILURE_CODES } from '../adapters.ts';
 import { commitShaSchema, webUrl } from '../facts.ts';
 
-/** The stored colour of a repository's default-branch head, as status.get shows it. */
+/** The stored colour of a repository's default branch, as status.get shows it. */
 export const defaultBranchViewSchema = z
   .strictObject({
     branch: z.string().min(1).describe('Name of the default branch.'),
-    state: z.enum(['red', 'green']).describe('Colour of the default-branch head.'),
+    state: z.enum(['red', 'green']).describe('Last settled colour read for the default branch.'),
     sha: commitShaSchema.describe(
-      'Head commit when this colour was first read; while red, the first red commit.',
+      'Checked commit when this colour was first read. While red, the first red commit.',
     ),
     since: z.iso.datetime().describe('When the board first read this colour.'),
     confirmedAt: z.iso
       .datetime()
-      .describe('When a poll last read this colour; a poll that reads no colour keeps it.'),
+      .describe(
+        'When a poll last read this colour, including via a checked parent of an unchecked head. A poll without a settled result keeps this time.',
+      ),
     check: z.string().min(1).nullable().describe('Name of the first failing check, or null.'),
     url: webUrl.nullable().describe('Web URL of the failing run, or null.'),
   })
   .describe(
-    'Colour of the default-branch head. It is red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed; scheduled, manual and other runs and check runs outside workflows are ignored, and branch protection is not read.',
+    'Colour of the newest commit with a commit status or push-triggered workflow among the default-branch head and its seven nearest first parents. A push suite counts before its check runs appear. Red means a failed commit status or a latest push-workflow check with a completed result other than success, neutral or skipped. Scheduled, manual and non-workflow checks are ignored, and branch protection is not read. A poll without a settled result keeps the stored colour and operator item.',
   );
 export type DefaultBranchView = z.output<typeof defaultBranchViewSchema>;
 
@@ -90,7 +92,7 @@ export const sourceViewSchema = z
       .nullable()
       .optional()
       .describe(
-        'GitHub pull request sources only: the default-branch colour, red when the latest check run of a push-triggered workflow finished without success (failed, cancelled, timed out) or a commit status failed (scheduled and other runs ignored, branch protection not read); null until a poll reads it.',
+        'GitHub pull request sources only. The stored default-branch colour from the newest checked commit in the poll window, or null until a poll reads a settled result.',
       ),
   })
   .describe('Freshness and availability of one source.');

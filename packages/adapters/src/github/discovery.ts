@@ -6,6 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { checkState, contextName, latestContexts } from './checks.ts';
+import { DEFAULT_BRANCH_READS, type GraphError } from './client.ts';
 
 const timestamp = z
   .string()
@@ -106,20 +107,28 @@ const branchContextWire = z.discriminatedUnion('__typename', [
   branchStatusWire,
 ]);
 type BranchContext = z.output<typeof branchContextWire>;
-// A null ref, a target that is not a commit or a null rollup fails this parse: no fact.
-const defaultBranchWire = z.object({
+const branchCommitWire = z.object({
+  oid: z.string(),
+  checkSuites: z.unknown().optional(),
+  statusCheckRollup: z
+    .object({
+      contexts: z.object({
+        nodes: z.array(branchContextWire),
+        pageInfo: z.object({ hasNextPage: z.boolean() }),
+      }),
+    })
+    .nullable(),
+});
+const branchSuitesWire = z.object({
+  nodes: z.array(z.object({ workflowRun: z.object({ event: z.string() }).nullable() })),
+  pageInfo: z.object({ hasNextPage: z.boolean() }),
+});
+const branchParentsWire = z.object({ parents: z.object({ nodes: z.tuple([z.unknown()]) }) });
+const parentRefWire = z.object({ target: z.looseObject({ oid: z.string() }) });
+const defaultBranchWire = z.looseObject({
   defaultBranchRef: z.object({
     name: z.string(),
-    target: z.object({
-      __typename: z.literal('Commit'),
-      oid: z.string(),
-      statusCheckRollup: z.object({
-        contexts: z.object({
-          nodes: z.array(branchContextWire),
-          pageInfo: z.object({ hasNextPage: z.boolean() }),
-        }),
-      }),
-    }),
+    target: branchCommitWire.extend({ __typename: z.literal('Commit') }),
   }),
 });
 // A commit status, or a check run of a push-triggered workflow.
@@ -129,19 +138,67 @@ function counted(node: BranchContext): boolean {
 const PASSED = new Set(['success', 'neutral', 'skipped']);
 const RUNNING = new Set(['pending', 'expected']);
 
+export function branchScoped(error: GraphError): boolean {
+  return (
+    error.path?.[0] === 'repository' &&
+    DEFAULT_BRANCH_READS.some((alias) => error.path?.[1] === alias)
+  );
+}
+
+function readBranchParent(reference: unknown, tip: string, depth: number): unknown {
+  const parsed = parentRefWire.safeParse(reference);
+  if (!parsed.success || parsed.data.target.oid !== tip) return undefined;
+  let commit: unknown = parsed.data.target;
+  for (let hop = 0; hop < depth; hop += 1)
+    commit = branchParentsWire.safeParse(commit).data?.parents.nodes[0];
+  return commit;
+}
+
+function hasNoPushSuite(wire: unknown): boolean {
+  const suites = branchSuitesWire.safeParse(wire).data;
+  return (
+    suites !== undefined &&
+    !suites.pageInfo.hasNextPage &&
+    suites.nodes.every((suite) => suite.workflowRun?.event !== 'push')
+  );
+}
+
 /**
- * The colour of the default-branch head in a discovery response's `repository`, or undefined
- * when it is unknown: an unexpected shape, a running head, no counted check, or a truncated page
- * with no failure in it. Only check runs of push-triggered workflows and commit statuses count;
- * the latest run of each check decides (see `latestContexts`). A run URL that is not http(s)
- * becomes null.
+ * The colour of the newest checked commit in the default branch's first-parent window. Walk
+ * past a commit only when it has no counted checks or push suites. A push suite can precede
+ * its first check run. Without a visible failure, an unsettled commit leaves the colour unknown.
  */
-export function defaultBranchFact(repository: unknown): Batch['defaultBranch'] {
+export function defaultBranchFact(
+  repository: unknown,
+  errors: readonly GraphError[],
+): Batch['defaultBranch'] {
   const parsed = defaultBranchWire.safeParse(repository);
   if (!parsed.success) return undefined;
   const { name: branch, target } = parsed.data.defaultBranchRef;
-  const { nodes, pageInfo } = target.statusCheckRollup.contexts;
-  const kept = latestContexts(nodes.filter(counted)).map((node) => ({
+  for (const [depth, alias] of DEFAULT_BRANCH_READS.entries()) {
+    const readErrors = errors.filter((error) => error.path?.[1] === alias);
+    // A nullable suite read can fail independently of a complete check result.
+    if (readErrors.some((error) => !error.path?.includes('checkSuites'))) return undefined;
+    const commit = depth === 0 ? target : readBranchParent(parsed.data[alias], target.oid, depth);
+    const result = branchCommitWire.safeParse(commit);
+    if (!result.success) return undefined;
+    const { oid, statusCheckRollup, checkSuites } = result.data;
+    const contexts = statusCheckRollup?.contexts;
+    const kept = contexts?.nodes.filter(counted) ?? [];
+    const truncated = contexts?.pageInfo.hasNextPage ?? false;
+    if (kept.length > 0 || truncated) return branchColour(branch, oid, kept, truncated);
+    if (readErrors.length > 0 || !hasNoPushSuite(checkSuites)) return undefined;
+  }
+  return undefined;
+}
+
+function branchColour(
+  branch: string,
+  sha: string,
+  nodes: BranchContext[],
+  truncated: boolean,
+): Batch['defaultBranch'] {
+  const kept = latestContexts(nodes).map((node) => ({
     check: contextName(node),
     node,
     state: checkState(node),
@@ -150,12 +207,11 @@ export function defaultBranchFact(repository: unknown): Batch['defaultBranch'] {
   if (failing !== undefined) {
     const { check, node } = failing;
     const url = (node.__typename === 'StatusContext' ? node.targetUrl : node.detailsUrl) ?? null;
-    const red = { state: 'red', branch, sha: target.oid, check, url };
+    const red = { state: 'red', branch, sha, check, url };
     const fact = defaultBranchFactSchema.safeParse(red);
     if (fact.success) return fact.data;
     return url === null ? undefined : defaultBranchFactSchema.safeParse({ ...red, url: null }).data;
   }
-  if (kept.length === 0 || pageInfo.hasNextPage || kept.some(({ state }) => !PASSED.has(state)))
-    return undefined;
-  return defaultBranchFactSchema.safeParse({ state: 'green', branch, sha: target.oid }).data;
+  if (truncated || kept.some(({ state }) => !PASSED.has(state))) return undefined;
+  return defaultBranchFactSchema.safeParse({ state: 'green', branch, sha }).data;
 }

@@ -178,11 +178,11 @@ export const prControlSchema = z.discriminatedUnion('verb', [
   // Resolves the thread with this id, or every thread when omitted.
   z.strictObject({ ...target, verb: z.literal('resolve'), thread: z.string().min(1).optional() }),
 ]);
-// Sets a new head on the repository's default branch: one push-triggered run `check` that
-// failed (red) or passed (green), plus a failed scheduled run `scheduledFailure` when given.
+// Sets a new head: one failed or passed push check (red or green), or none (unchecked).
+// A failed scheduled run is added when `scheduledFailure` is given.
 export const branchControlSchema = z.strictObject({
   repo: target.repo,
-  state: z.enum(['red', 'green']),
+  state: z.enum(['red', 'green', 'unchecked']),
   check: z.string().min(1).default('build'),
   scheduledFailure: z.string().min(1).optional(),
 });
