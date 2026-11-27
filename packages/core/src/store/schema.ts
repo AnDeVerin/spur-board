@@ -72,6 +72,7 @@ export interface TaskTable {
 
 export interface PrSnapshotTable {
   closed_recheck_at: Generated<string | null>;
+  merged_seen_at: Generated<string | null>;
   repo: string;
   number: number;
   head_sha: string;
@@ -94,6 +95,7 @@ export interface TicketSnapshotTable {
   detail: string;
   source: string;
   observed_at: string;
+  last_read_at: Generated<string | null>;
 }
 
 export interface SessionSnapshotTable {

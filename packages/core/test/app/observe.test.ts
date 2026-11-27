@@ -2778,6 +2778,119 @@ describe('anomaly blocks', () => {
   const tick = (b: Board) =>
     tickBoard({ store: b.store, config: b.config, clock, completeSince: b.core.completeSince });
 
+  it('waits for a positive issue read after the latest visible merge, including a conflict PR', async () => {
+    const b = await board();
+    await b.store.db
+      .updateTable('task')
+      .set({ manual_include: 0 })
+      .where('id', '=', b.task.id)
+      .execute();
+    const inside = { ...fact(), inFilter: true };
+    const trackerPoll = (observedAt: string, facts?: TicketFacts) =>
+      b.core.observe(source, {
+        batch: {
+          source,
+          observedAt,
+          complete: true,
+          items: facts === undefined ? [] : [{ kind: 'ticket', facts }],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: observedAt, gone: [] },
+        outcomes: [],
+      });
+    const ticketTimes = () =>
+      b.store.db
+        .selectFrom('ticket_snapshot')
+        .select(['last_read_at', 'observed_at', 'detail'])
+        .executeTakeFirstOrThrow();
+    const acceptance = (number: number) =>
+      b.store.db
+        .selectFrom('pr_snapshot')
+        .select('merged_seen_at')
+        .where('number', '=', number)
+        .executeTakeFirstOrThrow();
+    const idle = () =>
+      b.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', 'like', 'health:%:worker_idle')
+        .execute();
+
+    await trackerPoll(iso(), inside);
+    await spur(b, [session('worker-1', 'waiting')]);
+    const seven = pr(7, 'open');
+    const eight = pr(8, 'open');
+    await prs(b, [seven, eight]);
+    expect(
+      await b.store.db
+        .selectFrom('link')
+        .select(['number', 'pr_state'])
+        .where('entity', '=', 'pr')
+        .orderBy('number')
+        .execute(),
+    ).toEqual([
+      { number: 7, pr_state: 'active' },
+      { number: 8, pr_state: 'conflict' },
+    ]);
+
+    now += 1_000;
+    const firstMerge = { ...seven, state: 'merged' as const, mergedAt: iso(), updatedAt: iso() };
+    await prs(b, [firstMerge, eight]);
+    now += IDLE;
+    await trackerPoll(iso(), inside);
+    const started = iso();
+    now += 1_000;
+    const secondMerge = {
+      ...eight,
+      state: 'merged' as const,
+      mergedAt: started,
+      updatedAt: started,
+    };
+    const accepted = iso();
+    // The second PR poll started before acceptance, and the active PR's merge is already confirmed.
+    await b.core.observe(github, {
+      batch: {
+        source: github,
+        observedAt: started,
+        complete: true,
+        items: [firstMerge, secondMerge].map((facts) => ({ kind: 'pr', facts })),
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: started, gone: [] },
+      outcomes: [],
+    });
+    expect(await acceptance(8)).toEqual({ merged_seen_at: accepted });
+    expect(await idle()).toEqual([]);
+
+    now += 1_000;
+    await trackerPoll(started, inside);
+    expect(await idle()).toEqual([]);
+    await trackerPoll(accepted, inside);
+    expect(await idle()).toEqual([]);
+    await b.core.reportSourceState(source, { lastCompleteAt: iso(), gone: [] });
+    expect(await idle()).toEqual([]);
+    await trackerPoll(iso());
+    const missing = await ticketTimes();
+    expect(missing).toMatchObject({ last_read_at: accepted, observed_at: iso() });
+    expect(JSON.parse(missing.detail)).toMatchObject({ inFilter: false });
+    expect(await idle()).toEqual([]);
+
+    const read = iso();
+    now += 1_000;
+    await prs(b, [firstMerge, secondMerge]);
+    expect(await acceptance(8)).toEqual({ merged_seen_at: accepted });
+    expect(await idle()).toEqual([]);
+    await trackerPoll(read, { ...inside, inFilter: false });
+    expect(await ticketTimes()).toMatchObject({ last_read_at: read });
+    expect(await idle()).toMatchObject([
+      { text: 'o/r#9: worker idle (worker-1)', cleared_at: null },
+    ]);
+    await prs(b, [firstMerge, eight]);
+    expect(await acceptance(8)).toEqual({ merged_seen_at: null });
+  });
+
   async function surface(b: Board) {
     const outbox = async (kind: string) =>
       (await b.store.db.selectFrom('outbox').select('id').where('kind', '=', kind).execute())
@@ -4599,7 +4712,7 @@ describe('anomaly blocks', () => {
         now += 1_000;
         await prs(b, [eight]);
       },
-      // A worker waits past the idle threshold: only an open PR keeps the observation away.
+      // After a fresh ticket read, a worker past the idle threshold is flagged unless a PR is open.
       // `openLedger` sees system blocks only, so the observation is asserted here.
       'worker-idle': (kind, state) => async (b, ticket) => {
         await ticket('open');
@@ -4612,6 +4725,7 @@ describe('anomaly blocks', () => {
         await spur(b, [waiting]);
         now += 1_000;
         await prs(b, [eight]);
+        if (state === 'merged') await ticket('open');
         const idle = await b.store.db
           .selectFrom('operator_item')
           .select('text')

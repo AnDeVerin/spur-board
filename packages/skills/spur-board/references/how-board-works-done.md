@@ -25,6 +25,10 @@ Reopening a ticket finished without a PR returns the task to To Do.
 
 ## Merged PR alerts
 
+For a GitHub Issue task, the worker idle item waits until an issue read starts after the Board
+sees the latest linked merge. A read that still finds the issue open lets the usual idle rules
+apply. Entering Done clears any worker idle item, even while the wrap-up turn is open.
+
 An agent holding the current open non-Done turn raises an `ended-turn:` item (`worker_ended`) when
 it ends, whatever its PRs; it has no `health:` item (see the [inbox](how-board-works-inbox.md)).
 Without a turn, a worker that completed, was killed or vanished raises its `health:` item

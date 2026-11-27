@@ -53,7 +53,7 @@ export const sampleRows: SampleRows = {
     number: 7,
     head_sha: 'a'.repeat(40),
     head_branch: 'feature',
-    state: 'open',
+    state: 'merged',
     draft: 0,
     mergeable: 'mergeable',
     merge_state: 'clean',
@@ -61,6 +61,7 @@ export const sampleRows: SampleRows = {
     source: 'github',
     observed_at: at,
     closed_recheck_at: null,
+    merged_seen_at: at,
   },
   pr_ticket_key: { repo: 'x/y', number: 7, source: 'github', ticket_key: 'X-1' },
   ticket_snapshot: {
@@ -70,6 +71,7 @@ export const sampleRows: SampleRows = {
     detail: '{}',
     source: 'tracker',
     observed_at: at,
+    last_read_at: at,
   },
   session_snapshot: {
     id: 'sess-1',

@@ -527,20 +527,25 @@ export async function reconcileItems(
       'pr_snapshot.state',
       'pr_snapshot.source',
       'pr_snapshot.observed_at',
+      'pr_snapshot.merged_seen_at',
       'pr_snapshot.detail',
     ])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
     .where(pastReopenFloor)
     .execute();
-  const tickets = await trx
-    .selectFrom('ticket_snapshot')
-    .select(['task_id', 'status', 'detail', 'source', 'observed_at'])
-    .execute();
+  const tickets = new Map(
+    (
+      await trx
+        .selectFrom('ticket_snapshot')
+        .select(['task_id', 'status', 'detail', 'source', 'observed_at', 'last_read_at'])
+        .execute()
+    ).map((ticket) => [ticket.task_id, ticket]),
+  );
   const taskPrs: Record<string, TaskPrState> = {};
   for (const task of tasks) {
     const project = config.projects.find((entry) => entry.id === task.project);
-    const ticket = tickets.find((entry) => entry.task_id === task.id);
+    const ticket = tickets.get(task.id);
     taskPrs[String(task.id)] = {
       hasOpenPr: false,
       hasMergedPr: false,
@@ -559,6 +564,8 @@ export async function reconcileItems(
   // it are superseded, and its grace holds the pr-closed item. Null when no merged PR's detail is
   // readable.
   const mergedAt = new Map<number, string | null>();
+  // Idle waits for an issue read after the newest visible merge, including conflict links.
+  const mergedSeenAt = new Map<number, string | null>();
   // Each task's newest stored merge time (`newestMergeAt`): a ticket edited before it waits.
   const newestMerge = new Map<number, string | null>();
   // Each task's merged PR as the inbox judges it: the newest link among its `eligibleMerges`, the
@@ -574,6 +581,7 @@ export async function reconcileItems(
     if (state === undefined) continue;
     if (pr.state === 'open') state.hasOpenPr = true;
     if (pr.state !== 'merged') continue;
+    mergedSeenAt.set(pr.task_id, latest([mergedSeenAt.get(pr.task_id), pr.merged_seen_at]));
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
@@ -626,13 +634,7 @@ export async function reconcileItems(
     const inMergeGrace =
       Number.isFinite(mergedSince) &&
       project !== undefined &&
-      !seenOpenSince(
-        project,
-        config,
-        tickets.find((entry) => entry.task_id === task.id),
-        task.manual_include === 1,
-        mergedSince,
-      );
+      !seenOpenSince(project, config, tickets.get(task.id), task.manual_include === 1, mergedSince);
     if (inMergeGrace || state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
       prClosed.set(task.id, { held: true, key });
       continue;
@@ -668,7 +670,7 @@ export async function reconcileItems(
     // split task back in Dev is watched like any task without a PR. A raised pr-closed item also
     // ends it once the ticket is seen still not done one tracker interval after the newest merge,
     // the grace in which a close the merge triggers may still be polled.
-    const ticket = tickets.find((entry) => entry.task_id === taskId);
+    const ticket = tickets.get(taskId);
     // The newest stored merge decides; without one, the PR's interval fallback (`mergedTicket`).
     const storedMerge = latest([facts?.mergedAt, newestMerge.get(taskId)]);
     const judgement =
@@ -715,7 +717,7 @@ export async function reconcileItems(
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     const project = config.projects.find((entry) => entry.id === task.project);
-    const ticket = tickets.find((entry) => entry.task_id === task.id);
+    const ticket = tickets.get(task.id);
     // A done ticket with live work and no merge is the operator's to settle, not a filter change.
     const closedWhileLive =
       state !== undefined &&
@@ -956,10 +958,11 @@ export async function reconcileItems(
       oc.column('key').doUpdateSet({ value: toJson(episodeSchema, health.episode) }),
     )
     .execute();
-  // A holder waiting on its turn, or just woken from the wait, is not idle.
+  // Done and holders resting on their turns raise or hold no idle item.
   const resting = await restingHolders(trx, config, now);
-  const restingIdle = (flag: { kind: string; taskId: string; sessionId: string }) =>
-    flag.kind === 'worker_idle' && resting.has(`${flag.taskId}:${flag.sessionId}`);
+  const skipIdle = (task: Row<'task'>, flag: SessionHealthFlag) =>
+    flag.kind === 'worker_idle' &&
+    (task.column === 'done' || resting.has(`${flag.taskId}:${flag.sessionId}`));
   // A worker stopped without an end time on a Done task whose untaken wrap-up closed with no
   // recipient left (`closeUnaddressedDoneTurns`) has nothing left to answer: the retained Spur
   // health of its last state raises and holds no stuck or input flag. Before that close the
@@ -1011,14 +1014,22 @@ export async function reconcileItems(
     ['stuck_worker', 'needs_input'].includes(flag.kind) &&
     stoppedInDone.has(`${flag.taskId}:${flag.sessionId}`);
   for (const flag of health.flags) {
+    const task = taskById.get(Number(flag.taskId));
     if (
+      task === undefined ||
       endedHolders.has(`${flag.taskId}:${flag.sessionId}`) ||
-      restingIdle(flag) ||
+      skipIdle(task, flag) ||
       stoppedRetained(flag)
     )
       continue;
-    const task = taskById.get(Number(flag.taskId));
-    if (task === undefined) continue;
+    if (flag.kind === 'worker_idle' && task.tracker_kind === 'github-issues') {
+      const merged = mergedSeenAt.get(task.id);
+      const read = tickets.get(task.id)?.last_read_at;
+      if (merged != null && (read == null || Date.parse(read) <= Date.parse(merged))) {
+        heldKeys.push(healthKey(task.id, flag));
+        continue;
+      }
+    }
     const fact = subjects.find(
       (subject) => subject.taskId === flag.taskId && subject.id === flag.sessionId,
     );
@@ -1122,15 +1133,15 @@ export async function reconcileItems(
   const ordered = orderItems(candidates);
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
+    const task = taskById.get(Number(flag.taskId));
     if (
+      task === undefined ||
       endedHolders.has(`${flag.taskId}:${flag.sessionId}`) ||
-      restingIdle(flag) ||
+      skipIdle(task, flag) ||
       stoppedRetained(flag)
     )
       continue;
-    const task = taskById.get(Number(flag.taskId));
-    if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
-      seen.add(healthKey(task.id, flag));
+    if (!stalled.has(`${flag.taskId}:${flag.sessionId}`)) seen.add(healthKey(task.id, flag));
   }
   const existing = await trx
     .selectFrom('operator_item')
