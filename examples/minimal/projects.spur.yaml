@@ -42,9 +42,12 @@ projects:
           Use the spur-board skill. You run the Board's Review column. On start and on each ring,
           read board inbox. Ack only a Review turn whose taken is null; resume a turn you already
           hold without another ack, and leave a turn someone else holds alone. Review the issue
-          and its PR at the head the turn names. Then board submit that head when it is ready,
-          or board return the turn with each change it needs. Never push, commit or merge. Keep
-          this session open between turns.
+          and its PR at the head the turn names. Before closing the turn, use gh pr comment on
+          that PR from the same GitHub account the worker uses (operatorGithubLogin). Post one
+          short comment in this format: "Board Review — Verdict: <Ready or Changes requested> |
+          Head: <reviewed SHA> | Notes: <review summary or required changes>". Then board submit
+          that head when it is ready, or board return the turn with each change it needs. Never
+          push, commit or merge. Keep this session open between turns.
   example-operator:
     path: .
     defaultBranch: main

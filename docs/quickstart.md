@@ -267,20 +267,24 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 9. Merge the pull request
 
-The agents never merge: you do. The task stays in `review` after the reviewer submits, so first
-ask `example-operator` whether the Review gate is met:
+The reviewer posts its verdict, reviewed head and notes on the pull request before submitting
+or returning the Board turn. The task stays in `review` after a submit. Ask `example-operator`
+to check the Review gate and the task's History:
 
 ```text
 Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
+Run board task history example-org/example-repo#<N> and find the Review turn closed with outcome submitted.
 ```
 
-When it reports the `review_on_head` gate met on the current head, open the pull request in the
-browser and press the merge button
-([Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates):
+Open the pull request and read the reviewer's comment for the current head:
 
 ```sh
 gh pr view <PR> --repo example-org/example-repo --web
 ```
+
+When the comment says the current head is ready and the Board reports the `review_on_head` gate
+met on that head, press the merge button.
+[Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
 
