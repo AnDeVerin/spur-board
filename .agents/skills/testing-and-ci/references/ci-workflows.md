@@ -70,8 +70,8 @@
   publishing and do not pass an npm token; `release.config.cjs` disables the npm plugin's direct
   publish (`.github/workflows/ci.yml`, `release.config.cjs`).
 - Analyzer and notes share `parserOpts`: no `fieldPattern`, uppercase `BREAKING CHANGE: ` only.
-  Notes list only closing-keyword references; `plugins[0]` is the 0.x clamp `nextVersion` reads
-  (`scripts/release-policy.test.ts`).
+  Notes list only closing references. `nextVersion` matches `@semantic-release/commit-analyzer`
+  by resolved path (`scripts/release-policy.test.ts`).
 - `RELEASE_CHANGELOG_COMMIT=true` adds the changelog commit. The commit and tag push with the
   release App token, which the same variable gates and only the semantic-release step gets, as
   `GIT_CREDENTIALS`; `scripts/release-changelog.ts` drops untagged entries first
