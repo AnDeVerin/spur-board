@@ -50,6 +50,9 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
    spur connect spur.yaml
    ```
 
+   Look for the confirmation that `spur.yaml` is connected. The `projects available` count includes
+   all projects in the running Spur instance, including any outside this file.
+
    For Codex, set `defaultAgent: codex`, after `board skills install` link
    `.agents/skills/spur-board` in the checkout to the installed skill, and uncomment `symlinks` in
    each project ([TROUBLESHOOTING.md](../../TROUBLESHOOTING.md#skillscodex_visibility)). Spur

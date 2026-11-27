@@ -133,6 +133,9 @@ out of commits. Then connect it from the checkout:
 spur connect spur.yaml
 ```
 
+Look for the confirmation that `spur.yaml` is connected. The `projects available` count includes
+all projects in the running Spur instance, including any outside this file.
+
 Create the private config directory and an empty `secrets.env` with mode `0600` before you write
 anything there, so the token is never readable by other users. The commands are safe to rerun:
 they keep an existing `secrets.env` and its token.
