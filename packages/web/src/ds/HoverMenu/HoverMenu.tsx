@@ -272,8 +272,12 @@ export function HoverMenu<V extends string>({
       onFocus={(event) => {
         focusInMenu.current = menu.current?.contains(event.target) ?? false;
       }}
-      onPointerEnter={(event: PointerEvent<HTMLDivElement>) => {
-        if (event.pointerType !== 'touch' && !open) requestOpen(false);
+      onPointerOver={(event: PointerEvent<HTMLDivElement>) => {
+        if (event.pointerType === 'touch' || open) return;
+        // React can synthesize two enters from a move off body after a portal has mounted there.
+        const from = event.relatedTarget;
+        if (from instanceof Node && event.currentTarget.contains(from)) return;
+        requestOpen(false);
       }}
       onPointerLeave={() => {
         if (open && !pinned.current) close();
