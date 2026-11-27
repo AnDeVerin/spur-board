@@ -2,6 +2,13 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.171.4](https://github.com/AnDeVerin/spur-board/compare/v0.171.3...v0.171.4) (2026-11-27)
+
+### Bug Fixes
+
+* **adapters:** [#926](https://github.com/AnDeVerin/spur-board/issues/926) follow checked default-branch commits ([#930](https://github.com/AnDeVerin/spur-board/issues/930)) ([9ab78c7](https://github.com/AnDeVerin/spur-board/commit/9ab78c79653d8a688fe9a255edba4856edd9d5cd))
+* **stand:** [#925](https://github.com/AnDeVerin/spur-board/issues/925) avoid CLI shutdown hangs and stabilize stand tests ([#927](https://github.com/AnDeVerin/spur-board/issues/927)) ([33dbbde](https://github.com/AnDeVerin/spur-board/commit/33dbbde61496fd34cb6b635d6458cd4311b1d6ce))
+
 ## [0.171.3](https://github.com/AnDeVerin/spur-board/compare/v0.171.2...v0.171.3) (2026-11-27)
 
 ### Bug Fixes
