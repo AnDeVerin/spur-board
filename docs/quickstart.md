@@ -288,8 +288,8 @@ Open the pull request and read the reviewer's comment for the current head:
 gh pr view <PR> --repo example-org/example-repo --web
 ```
 
-When the comment says the current head is ready and the Board reports the `review_on_head` gate
-met on that head, press the merge button.
+When the comment says `Ready` and the Board reports the `review_on_head` gate met on the current
+head, press the merge button.
 [Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
