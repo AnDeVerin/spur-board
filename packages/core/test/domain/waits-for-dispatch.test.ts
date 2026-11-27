@@ -19,8 +19,13 @@ describe('the ladder follows dispatch()', () => {
     checks: [{ name: 'ci', state: 'success', completedAt: null }],
   });
   /** A task in Review of the minimal board, Review run by `rev`, with `changes` over it. */
-  function input(changes: Partial<Omit<Input, 'facts'>> & { pr?: TaskGateFacts['pr'] }): Input {
-    const { pr = reviewed('open'), ...rest } = changes;
+  function input(
+    changes: Partial<Omit<Input, 'facts'>> & {
+      pr?: TaskGateFacts['pr'];
+      marks?: TaskGateFacts['marks'];
+    },
+  ): Input {
+    const { pr = reviewed('open'), marks = [], ...rest } = changes;
     const base = project();
     return {
       column: 'review',
@@ -34,7 +39,7 @@ describe('the ladder follows dispatch()', () => {
         commentHistory: 'complete',
         unhandledExternalComments: 0,
         unresolvedThreads: 0,
-        marks: [{ kind: 'submit', column: 'dev', headSha: SHA }],
+        marks: [{ kind: 'submit', column: 'dev', headSha: SHA }, ...marks],
       },
       reopened: false,
       ticketDone: true,
@@ -55,6 +60,19 @@ describe('the ladder follows dispatch()', () => {
   const reviewTurn = {
     turn: { visit: 'unclosed', open: true, operatorUntaken: false, headMoved: false },
   } as const;
+  /**
+   * Review submitted on the head, then CI rerun: checks pending, the ticket closed, the PR open and
+   * the worker live. The Review visit is closed by its submit.
+   */
+  const ciRerun = input({
+    pr: {
+      ...reviewed('open'),
+      requiredChecks: [{ name: 'ci', state: 'pending', completedAt: null }],
+    },
+    marks: [{ kind: 'submit', column: 'review', headSha: SHA }],
+    turn: { visit: 'submitted', open: false, operatorUntaken: false, headMoved: false },
+    liveWorker: true,
+  });
   /** The ladder's facts as `why()` reads them from the same dispatcher input. */
   const ladder = (state: Input): Read => {
     const gate = evaluateGate(state.column, state.facts, state.project);
@@ -117,14 +135,8 @@ describe('the ladder follows dispatch()', () => {
       NEXT,
     ],
     [
-      'Review passed, CI rerun, ticket done, PR open, worker live',
-      input({
-        pr: {
-          ...reviewed('open'),
-          requiredChecks: [{ name: 'ci', state: 'pending', completedAt: null }],
-        },
-        liveWorker: true,
-      }),
+      'Review submitted, CI rerun, ticket done, PR open, worker live',
+      ciRerun,
       'CI on 01234567',
       'merge of o/r#7',
     ],
@@ -168,5 +180,9 @@ describe('the ladder follows dispatch()', () => {
     // Only a pass that really moves the task to Done is promised, by the lead and the Done gate.
     expect(leadText === NEXT).toBe(movesToDone);
     expect(doneGate === NEXT).toBe(movesToDone);
+  });
+
+  it('holds the task after a Review submit while the rerun CI runs: no move, no new turn', () => {
+    expect(dispatch(ciRerun)).toEqual({ moves: [], turn: null });
   });
 });
