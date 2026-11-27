@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.171.2](https://github.com/AnDeVerin/spur-board/compare/v0.171.1...v0.171.2) (2026-11-27)
+
+### Bug Fixes
+
+* **adapters:** [#919](https://github.com/AnDeVerin/spur-board/issues/919) explain stale Spur request timeouts ([#921](https://github.com/AnDeVerin/spur-board/issues/921)) ([22bc75f](https://github.com/AnDeVerin/spur-board/commit/22bc75fc17c00d1fafffb21cd8299bf0713762ab))
+
 ## [0.171.1](https://github.com/AnDeVerin/spur-board/compare/v0.171.0...v0.171.1) (2026-11-27)
 
 ### Bug Fixes
