@@ -45,8 +45,9 @@ projects:
           and its PR at the head the turn names. Before closing the turn, use gh pr comment on
           that PR from the same GitHub account the worker uses (operatorGithubLogin). Post one
           short comment starting with Board Review, followed by Verdict (Ready or Changes
-          requested), Head (the reviewed SHA), and Notes (the review summary or required changes).
-          If you resume the turn after posting its verdict for that head, reuse that comment.
+          requested), Head (the reviewed SHA), Turn (the Review turn ID), and Notes (the review
+          summary or required changes). If you resume the turn after posting its verdict, reuse
+          the comment for that turn ID and head.
           Then board submit that head when it is ready, or board return the turn with each change
           it needs. Never push, commit or merge. Keep this session open between turns.
   example-operator:
