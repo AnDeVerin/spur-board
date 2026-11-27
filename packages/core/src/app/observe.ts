@@ -506,6 +506,7 @@ async function ticket(
       detail: toJson(ticketFactsSchema, fact),
       source,
       observed_at: at,
+      last_read_at: at,
     })
     .onConflict((oc) =>
       oc.column('task_id').doUpdateSet({
@@ -514,6 +515,7 @@ async function ticket(
         detail: toJson(ticketFactsSchema, fact),
         source,
         observed_at: at,
+        last_read_at: at,
       }),
     )
     .execute();
@@ -577,6 +579,7 @@ async function pr(
   config: Config,
   fact: PrFacts,
   at: string,
+  acceptedAt: string,
   source: string,
   scheduled: boolean,
   reviewRule?: PrReviewRule,
@@ -594,6 +597,8 @@ async function pr(
     .where('number', '=', fact.number)
     .executeTakeFirst();
   const previous = old === undefined ? null : parseJson(prFactsSchema, old.detail);
+  const mergedSeenAt =
+    fact.state !== 'merged' ? null : old?.state === 'merged' ? old.merged_seen_at : acceptedAt;
   const recheckAt =
     fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null;
   // Preserve a legacy owner's processing/deadline before another source replaces the shared row.
@@ -618,10 +623,12 @@ async function pr(
       source,
       observed_at: at,
       closed_recheck_at: recheckAt,
+      merged_seen_at: mergedSeenAt,
     })
     .onConflict((oc) =>
       oc.columns(['repo', 'number']).doUpdateSet({
         closed_recheck_at: recheckAt,
+        merged_seen_at: mergedSeenAt,
         head_sha: fact.headSha,
         head_branch: fact.headBranch,
         state: fact.state,
@@ -1423,7 +1430,10 @@ export function createObservationCore(deps: {
       const { batch } = observation;
       // Read once: every scan pass must build the same gateway strings (`scanTransaction`).
       const now = clock.now();
+      let acceptedAt: string | undefined;
       await transact(async (trx) => {
+        // Acceptance starts once we hold the write lock. Keep the time across scan replays.
+        acceptedAt ??= new Date(clock.now()).toISOString();
         const wasBlind = await blindReason(trx, source);
         // Capture the prior deadline before this batch replaces source_state. A fresh poll
         // may be the first event after a gap, before any tick or stale-state report.
@@ -1493,25 +1503,39 @@ export function createObservationCore(deps: {
             .where('state', '=', 'closed')
             .execute();
         }
+        const project = config.projects.find((entry) => trackerSourceId(entry) === source);
         for (const outcome of observation.outcomes) {
-          const answer = batch.entities.find(
-            (entity) => refKey(entity.ref) === refKey(outcome.ref),
-          );
+          const ref = outcome.ref;
+          const answer = batch.entities.find((entity) => refKey(entity.ref) === refKey(ref));
+          const confirmedMissingAt =
+            project?.tracker.type === 'github-issues' &&
+            ref.kind === 'ticket' &&
+            ref.trackerId === source &&
+            batch.complete &&
+            outcome.gone &&
+            answer?.status === 'not_found'
+              ? batch.observedAt
+              : null;
           await trx
             .insertInto('source_miss')
             .values({
               source,
-              ref_key: refKey(outcome.ref),
-              ref: toJson(entityRefSchema, outcome.ref),
+              ref_key: refKey(ref),
+              ref: toJson(entityRefSchema, ref),
               misses: outcome.misses,
               gone: outcome.gone ? 1 : 0,
               outcome: answer?.status ?? null,
+              confirmed_missing_at: confirmedMissingAt,
             })
             .onConflict((oc) =>
               oc.columns(['source', 'ref_key']).doUpdateSet({
                 misses: outcome.misses,
                 gone: outcome.gone ? 1 : 0,
                 outcome: answer?.status ?? null,
+                ...(answer?.status === 'ok' && { confirmed_missing_at: null }),
+                ...(confirmedMissingAt !== null && {
+                  confirmed_missing_at: sql<string>`max(coalesce(source_miss.confirmed_missing_at, ${confirmedMissingAt}), ${confirmedMissingAt})`,
+                }),
               }),
             )
             .execute();
@@ -1552,6 +1576,7 @@ export function createObservationCore(deps: {
                 config,
                 item.facts,
                 batch.observedAt,
+                acceptedAt,
                 source,
                 observation.effectiveComplete,
                 item.reviewRule,
@@ -1632,7 +1657,6 @@ export function createObservationCore(deps: {
             .where('last_seen', '<', batch.observedAt)
             .execute();
         if (observation.effectiveComplete) {
-          const project = config.projects.find((entry) => trackerSourceId(entry) === source);
           if (project !== undefined) {
             const seen = new Set(
               batch.items.flatMap((item) =>
