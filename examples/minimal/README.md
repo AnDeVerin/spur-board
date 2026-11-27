@@ -113,9 +113,11 @@ one and the fix for its common failures.
 
 The issue is a task in Todo. When the worker links its session, the Board moves the task to Dev
 and gives the worker a Dev turn. The worker pushes, opens a PR that closes the issue and submits
-its head. With green checks the task goes to Review, where the reviewer submits the head or
-returns the task to Dev with the changes it needs. After the reviewer submits, you merge the PR;
-the task then moves to Done, and the worker wraps up and submits its Done turn.
+its head. With green checks the task goes to Review. The reviewer posts its verdict, reviewed
+head and notes on the PR, then submits the head or returns the task to Dev with the changes it
+needs. Follow [Quickstart step 9](../../docs/quickstart.md#9-merge-the-pull-request) to check the
+verdict and Board Review gate on the current head before you merge. The task then moves to Done,
+and the worker wraps up and submits its Done turn.
 
 If the repository runs no CI checks, uncomment `reposWithoutCi` in `config.yaml`: otherwise a PR
 with no checks waits in Dev.
