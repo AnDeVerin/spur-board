@@ -393,7 +393,7 @@ describe('release policy', () => {
   const breakingFooter = 'BREAKING CHANGE: migrate the config';
   const releaseTitle = 'feat(release)!: cut 1.0.0';
   const releaseNote =
-    '1.0.0 is the first stable release. Nothing changes for an install on 0.171.x: the config, the CLI, the MCP and HTTP operations and the stored data stay as they are, and `board update` upgrades in place. From this release on, a breaking change to the config schema, CLI commands and flags, MCP or HTTP operations, error codes, stored data or bookmarked web routes is a major version and comes with an upgrade note here.';
+    '1.0.0 is the first stable release. Existing 0.171.x installations can upgrade in place with `board update`, keeping their configuration and stored data. The upgrade applies any pending database migrations automatically. From this release on, a breaking change to the config schema, CLI commands and flags, MCP or HTTP operations, error codes, stored data or bookmarked web routes is a major version and comes with an upgrade note here.';
   const titleCases = [
     ['breaking', 'v0.1.0', 'feat(core)!: break API', '1.0.0', 'break API'],
     ['fix', 'v0.1.0', 'fix(core): repair API', '0.1.1', 'repair API'],
