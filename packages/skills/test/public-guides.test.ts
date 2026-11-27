@@ -194,6 +194,19 @@ describe('public guide contents', () => {
     }
   });
 
+  it.each([
+    ['missing verdict after takeover', /comment is missing after an operator takeover/],
+    ['stale verdict on the same turn', /comment .* still shows an earlier verdict/],
+    ['another Review turn on the same SHA', /latest reviewer comment for the current head/],
+  ])('uses the Board outcome: %s', (_, guidance) => {
+    const merge = flat(step(9));
+    expect(merge).toMatch(guidance);
+    expect(merge).toContain('use the submitted turn in History for the outcome');
+    expect(merge).toContain(
+      'When the Board reports the `review_on_head` gate met on the current head, press the merge button.',
+    );
+  });
+
   it('asks the operator session only for registered board commands and flags', () => {
     // skill-sync skips `text` fences, so check the requests to example-operator here, against the
     // generated command reference.

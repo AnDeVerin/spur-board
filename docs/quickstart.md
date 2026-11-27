@@ -281,16 +281,18 @@ pull request description can lead to another Review turn on the same commit:
 gh pr view <PR> --repo example-org/example-repo --web
 ```
 
-The task stays in `review` after a submit. Give `example-operator` the turn ID from that comment
-and ask it to check the Review gate and the task's History:
+The task stays in `review` after a submit. Ask `example-operator` to check the Review gate and
+find the submitted turn in History. If you have a comment, use its turn ID to match the notes
+to that submission:
 
 ```text
 Run board task example-org/example-repo#<N> --why and tell me whether the review_on_head gate is met on the current head.
-Run board task history example-org/example-repo#<N> and confirm that Review turn <turn ID> closed with outcome submitted.
+Run board task history example-org/example-repo#<N> and tell me which Review turn submitted the current head.
 ```
 
-When the comment says `Ready`, History confirms its turn was submitted, and the Board reports
-the `review_on_head` gate met on the current head, press the merge button.
+If the comment is missing after an operator takeover or it still shows an earlier verdict,
+use the submitted turn in History for the outcome. When the Board reports the `review_on_head`
+gate met on the current head, press the merge button.
 [Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
