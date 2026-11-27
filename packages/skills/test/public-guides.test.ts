@@ -10,6 +10,7 @@ import {
   resolveWebOrigin,
   SPUR_MIN_VERSION,
 } from '../../contracts/src/index.ts';
+import { taskGetOutputSchema } from '../../contracts/src/browser.ts';
 import { statusTaskSchema } from '../../contracts/src/ops/schemas.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
@@ -56,7 +57,7 @@ const QUICKSTART_STEPS = [
   '10. See the task in Done',
 ];
 const step = (n: number) => section(quickstart, `### ${QUICKSTART_STEPS[n - 1] ?? ''}`);
-const BOARD_QUERY = /(?<!\/)board (?:status|columns describe|inbox operator)/;
+const BOARD_QUERY = /(?<!\/)\bboard (?:status|task|columns describe|inbox operator)\b/;
 
 describe('public guide contents', () => {
   it('introduces newcomers with every built-in column and working links', () => {
@@ -131,16 +132,15 @@ describe('public guide contents', () => {
       if (BOARD_QUERY.test(part)) expect(part, part.split('\n')[0]).toContain('example-operator');
     for (const match of quickstart.matchAll(/```([^\n]*)\n([\s\S]*?)```/g)) {
       if (!['', 'sh', 'bash', 'shell'].includes((match[1] ?? '').trim())) continue;
-      for (const line of (match[2] ?? '').split('\n'))
-        expect(line.trim(), line).not.toMatch(/^board (?:status|columns describe|inbox operator)/);
+      for (const line of (match[2] ?? '').split('\n')) expect(line, line).not.toMatch(BOARD_QUERY);
     }
-    for (const [n, column] of [
-      [6, 'todo'],
-      [7, 'dev'],
-      [8, 'review'],
-      [10, 'done'],
+    for (const [n, column, query] of [
+      [6, 'todo', 'board status'],
+      [7, 'dev', 'board task example-org/example-repo#<N> --why'],
+      [8, 'review', 'board status'],
+      [10, 'done', 'board status'],
     ] as const) {
-      expect(step(n)).toContain('board status');
+      expect(step(n)).toContain(query);
       expect(step(n)).toContain(`\`${column}\``);
     }
     // Turn reasons from packages/core/src/domain/gates.ts (dev, review) and dispatch.ts (done).
@@ -177,22 +177,38 @@ describe('public guide contents', () => {
     expect(requirements).toMatch(/After step 3, from the\s+checkout/);
   });
 
-  it('judges each step by real Board status fields', () => {
-    const task = statusTaskSchema.shape;
+  it('judges each step by fields returned by its Board query', () => {
+    const { kind, ref } = taskGetOutputSchema.shape.links.element.shape;
+    const hasPrLink = kind.options.includes('pr') && ref.safeParse('owner/repo#42').success;
+    const submission = statusTaskSchema.shape.submission.unwrap().unwrap().shape;
     const waitsForSource = readFileSync(
       fileURLToPath(new URL('../../core/src/domain/waits-for.ts', import.meta.url)),
       'utf8',
     );
     // Step, the Board fact a reader checks there, and whether it exists in the code.
-    const facts: [number, string, boolean][] = [
-      [7, '`links.prs`', 'prs' in task.links.shape],
-      [9, '`waits for: merge of', /`merge of \$\{/.test(waitsForSource)],
-      [10, '`waits for: ticket to close`', waitsForSource.includes("'ticket to close'")],
+    const facts: [number, string[], boolean][] = [
+      [7, ['`links`', '`kind: pr`', '`ref`', '`example-org/example-repo#<PR>`'], hasPrLink],
+      [8, ['`submission.column`'], submission.column.options.includes('review')],
+      [9, ['`waits for: merge of'], /`merge of \$\{/.test(waitsForSource)],
+      [10, ['`waits for: ticket to close`'], waitsForSource.includes("'ticket to close'")],
     ];
-    for (const [n, fact, exists] of facts) {
-      expect(exists, fact).toBe(true);
-      expect(flat(step(n)), `step ${String(n)}: ${fact}`).toContain(fact);
+    for (const [n, fields, exists] of facts) {
+      expect(exists, `step ${String(n)}`).toBe(true);
+      for (const field of fields) {
+        expect(flat(step(n)), `step ${String(n)}: ${field}`).toContain(field);
+      }
     }
+  });
+
+  it.each([
+    ['quickstart', flat(step(5))],
+    ['minimal example', flat(read('../../../examples/minimal/README.md'))],
+  ])('explains how to identify and replace an ended reviewer in the %s', (_name, guide) => {
+    expect(guide).toContain('`Waiting` in `spur list` is normal between turns');
+    expect(guide).toContain('`Completed` can describe a finished prompt or an ended session');
+    expect(guide).toContain('`orchestrator.sessions` check shows which reviewer session');
+    expect(guide).toContain('wait for the next successful Spur poll and rerun `board doctor`');
+    expect(guide).toContain('Start a replacement only after confirming');
   });
 
   it.each([

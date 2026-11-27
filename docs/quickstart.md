@@ -12,13 +12,14 @@ Each step shows the command, what success looks like, and where to look when it 
 
 ## Requirements
 
-- Linux with systemd user services and `flock`.
+- Linux with systemd user services, `flock`, and `tmux`.
 - Node 24.12+ (24.x) or 26.x, with its npm.
 - Spur 1.53.0 or newer. The minimal example was checked with Spur 1.62.3.
 - A GitHub classic personal access token with the `repo` and `read:org` scopes, authorized for
   SSO where the organization uses it.
 - The [GitHub CLI](https://cli.github.com/), and a GitHub repository you own where you can open
-  issues and pull requests.
+  issues and pull requests. Its default branch needs at least one commit for Spur to create
+  worktrees. Adding a README when you create the repository is enough.
 - Claude Code in the Spur sessions. Codex works too: follow step 3 of the
   [minimal example](../examples/minimal/README.md#steps) and
   [skills.codex_visibility](../TROUBLESHOOTING.md#skillscodex_visibility). After step 3, from the
@@ -33,10 +34,28 @@ Each step shows the command, what success looks like, and where to look when it 
 Slack and the web UI are not needed. [Add more columns](#add-more-columns) shows how to add them
 later.
 
+### On Ubuntu or Debian
+
+Ubuntu 24.04 ships Node 18 in its default apt repository. Select the latest 24.x release, which
+includes npm, on the [Node.js download page](https://nodejs.org/en/download).
+
+Install Node 24 system-wide so both your shell and `/usr/bin/node` use it. Spur's systemd user
+services run `/usr/bin/node` directly. If an older system package already owns that path, use a
+Node 24 package source that upgrades the system package in place.
+
+Install `gh` using the [GitHub CLI apt repository instructions](https://github.com/cli/cli/blob/trunk/docs/install_linux.md#debian).
+
+Spur uses tmux to launch agent sessions. Install it before starting any sessions.
+
+```sh
+sudo apt update
+sudo apt install -y tmux
+```
+
 ### Install Spur
 
-Install it under the same user prefix as the Board package in step 1, so npm needs no root
-access, and put that prefix's `bin` on `PATH`:
+Install Spur under `~/.local` so npm needs no root access. Put `~/.local/bin` on `PATH` for both
+Spur and the Board:
 
 ```sh
 npm install -g --prefix "$HOME/.local" @shugaev/spur
@@ -45,6 +64,10 @@ spur init
 ```
 
 Add the `export` line to your shell profile so new shells and the Spur sessions keep it.
+
+`spur init` installs and starts the Spur systemd user services, enables user linger so they keep
+running after logout, and may use `sudo` to install Tailscale. For this local setup you can
+ignore the `Tailscale not up` notice and the warning about a missing `~/.codex/skills` directory.
 
 `board doctor` blocks on a Spur older than 1.53.0 with
 [spur.version](../TROUBLESHOOTING.md#spurversion).
@@ -91,8 +114,9 @@ board --version
 board skills install
 ```
 
-**Success looks like:** one row per agent and skill, with the columns `agent`, `skill` and
-`changed`.
+**Success looks like:** a list with one entry per agent and skill. Each entry has the fields
+`agent`, `skill` and `changed`. When stdout is redirected or piped, the command prints the same
+entries as a JSON array.
 
 **If it fails:** a Codex session that cannot see the skill is covered by
 [skills.codex_visibility](../TROUBLESHOOTING.md#skillscodex_visibility).
@@ -101,12 +125,16 @@ board skills install
 
 Clone your repository. Copy the contents of `projects.spur.yaml` to `spur.yaml` at the root of the
 checkout, replace `example-org/example-repo`, `example-user` and the project names with your own
-values, set `defaultBranch` in all three projects to your repository's default branch if it is not
-`main`, and connect it from the checkout:
+values, and set `defaultBranch` in all three projects to your repository's default branch if it is
+not `main`. Add `/spur.yaml` to `.git/info/exclude` in the clone to keep the local configuration
+out of commits. Then connect it from the checkout:
 
 ```sh
 spur connect spur.yaml
 ```
+
+Look for the confirmation that `spur.yaml` is connected. The `projects available` count includes
+all projects in the running Spur instance, including any outside this file.
 
 Create the private config directory and an empty `secrets.env` with mode `0600` before you write
 anything there, so the token is never readable by other users. The commands are safe to rerun:
@@ -152,6 +180,20 @@ restarting, [EADDRINUSE](../TROUBLESHOOTING.md#eaddrinuse-the-daemon-restarts-ev
 missing or failed unit: [service.installed](../TROUBLESHOOTING.md#serviceinstalled); the wrong
 Node: [service.node](../TROUBLESHOOTING.md#servicenode).
 
+### First run of the agent
+
+Before starting your first Spur session, launch each agent from the checkout as the same user
+who runs Spur. For Claude Code, run `claude --dangerously-skip-permissions` to use the permission
+mode Spur uses. Claude Code can ask whether you trust the workspace, show a Bypass Permissions
+warning, and offer a renderer. Run `codex` if you use Codex and follow its own first-run prompts.
+Sign in if prompted and exit each agent once it is ready for input.
+
+If a spawn is already stuck on a dialog, open `spur list` in a terminal, select the session and
+press Enter to attach. You can also run `tmux -L spur-4310 attach -t SESSION_ID`, replacing
+`SESSION_ID` with the ID from the session launch output. The socket is `spur-<port>`, with `4310`
+as the default Spur daemon port. Answer the dialogs, detach with Ctrl+G, then run
+`spur kill SESSION_ID` and repeat the original spawn command with its prompt.
+
 ### 5. Run `board doctor` until green
 
 Start the reviewer and the operator sessions from the checkout and keep them open. The Board does
@@ -168,9 +210,15 @@ With both sessions live, run every check:
 board doctor
 ```
 
-**Success looks like:** the command exits 0 with no `FAIL` line. `WARNING web.spurUiOrigin` is
-expected without a Spur UI origin. `WARNING link.rules` is expected until the repository has a
-pull request by `operatorGithubLogin`; it never blocks
+**Success looks like:** the command exits 0 with no `FAIL` line. `Waiting` in `spur list` is normal
+between turns. `Completed` can describe a finished prompt or an ended session. The
+`orchestrator.sessions` check shows which reviewer session the Board last saw as live. If it
+reports `no live session` just after launch, wait for the next successful Spur poll and rerun
+`board doctor`. If the reviewer is still running, check the session setup. Start a replacement
+only after confirming the previous reviewer session has ended.
+`WARNING web.spurUiOrigin` is expected without a Spur UI origin.
+`WARNING link.rules` is expected until the repository has a pull request by `operatorGithubLogin`.
+It never blocks
 ([link.rules](../TROUBLESHOOTING.md#linkrules)). `path.spur` and `orchestrator.sessions` must
 show `PASS` once the sessions are live; they warn when run before this step, and a warning does
 not change the exit code.
@@ -222,14 +270,18 @@ spur spawn example-worker "Work on https://github.com/example-org/example-repo/i
 ```
 
 The worker links its session to the task, and the Board moves the task to Dev. In the
-`example-operator` session, ask it to run `board status` again:
+`example-operator` session, ask for the task's current state:
 
 ```text
-Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
+Run board task example-org/example-repo#<N> --why and tell me the column, open turn reason, and any holds.
 ```
 
-**Success looks like:** `example-operator` reports the task in `dev` with the turn reason
-`dev: no_pr`. Later the worker's pull request shows on GitHub:
+**Success looks like:** if the task is in `dev` with no open turn and a `submit_pending` hold,
+the worker already submitted. The PR can be open on GitHub while the task query still reports
+the Dev gate's `pr_open` condition as `failed` with reason `no_pr`. The Board links the PR on the
+next poll that sees it. While the worker is still on its first Dev turn, the turn reason is
+`dev: no_pr`. The task may already be in `review` by the time you check. Find the worker's pull
+request on GitHub:
 
 ```sh
 gh pr list --repo example-org/example-repo --author example-user --json number,body
@@ -241,10 +293,12 @@ It lists a pull request whose `body` says `Closes #<N>`; its `number` is `<PR>` 
 [Link worker sessions to tasks](../SETUP.md#6-link-worker-sessions-to-tasks). A pull request with no
 CI checks waits in Dev until `reposWithoutCi` lists the repository: uncomment it in `config.yaml`
 and run `board service restart`, because the daemon reads the config only when it starts
-([config.yaml fields](configuration.md#configyaml-fields)). A task that stays in `dev` after the
-pull request opened may not have linked it: ask `example-operator` for the task's `links.prs`. If
-`<PR>` is not there, its author is not `operatorGithubLogin`, or its branch and title do not match
-the link rules ([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
+([config.yaml fields](configuration.md#configyaml-fields)). If the task stays in `dev` after
+the Board polls the repository, ask `example-operator` to check the task query's `links` for a
+`kind: pr` entry with the `ref` `example-org/example-repo#<PR>`. If it is present, ask which Dev
+gate condition still holds the task in Dev. If it is missing, check that the PR author is
+`operatorGithubLogin` and that its branch or title matches the link rules
+([link.rules](../TROUBLESHOOTING.md#linkrules)). A worker that never gets its turn:
 [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 8. Watch the reviewer review it
@@ -253,13 +307,16 @@ When the checks pass and the worker submits its head, the task moves to Review a
 gets a turn. In the `example-operator` session, ask it to run `board status`:
 
 ```text
-Run board status and tell me the column and turn reason of example-org/example-repo#<N>.
+Run board status and find example-org/example-repo#<N>. Tell me the column, any open turn reason, and the latest submission's column and whether it is pending or voided.
 ```
 
-**Success looks like:** `example-operator` reports the task in `review`. While the reviewer works,
-the open turn has the reason `review: no_review_on_head`; with no open turn, the reviewer has
-already submitted: go on to step 9. When the reviewer returns the task, it goes back to `dev`, the
-worker fixes what the reviewer named, and the task comes back to Review.
+**Success looks like:** if the task is in `review` with no open turn and `submission.column` is
+`review`, with `submission.pending` and `submission.voided` both false, go to step 9 to verify
+the Review gate and PR head. While the reviewer works, the open turn has the reason
+`review: no_review_on_head`. If step 7 showed `submit_pending` in Dev, wait for the
+Board to link the PR on the next poll and for its checks to pass. When the reviewer returns the
+task, it goes back to `dev`, the worker fixes what the reviewer named, and the task comes back to
+Review.
 
 **If it fails:** no live reviewer session:
 [orchestrator.sessions](../TROUBLESHOOTING.md#orchestratorsessions). A reviewer that never wakes
