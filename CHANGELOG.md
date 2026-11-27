@@ -2,6 +2,12 @@
 
 Notable changes in each spur-board release, newest first. A breaking change lists what changed and how to migrate the config under **BREAKING CHANGES**; the versioning policy is in [CONTRIBUTING.md](CONTRIBUTING.md#versions-and-the-changelog). Releases before this file, and any release not listed here, are on the [GitHub releases page](https://github.com/AnDeVerin/spur-board/releases).
 
+## [0.171.0](https://github.com/AnDeVerin/spur-board/compare/v0.170.3...v0.171.0) (2026-11-27)
+
+### Features
+
+* **core:** [#910](https://github.com/AnDeVerin/spur-board/issues/910) say what a task waits for in --why and hide disabled columns ([#914](https://github.com/AnDeVerin/spur-board/issues/914)) ([4cce208](https://github.com/AnDeVerin/spur-board/commit/4cce208d7b0e29fb620ccba3125bc80bf74ce060))
+
 ## [0.170.3](https://github.com/AnDeVerin/spur-board/compare/v0.170.2...v0.170.3) (2026-11-27)
 
 ### Bug Fixes
