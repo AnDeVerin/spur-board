@@ -477,6 +477,28 @@ describe('stand usage errors', () => {
   });
 });
 
+describe('one-shot stand CLI shutdown', () => {
+  const forbidForcedExit = `data:text/javascript,${encodeURIComponent(
+    'process.exit = () => { throw new Error("unexpected forced exit") }',
+  )}`;
+
+  it.each([
+    { args: ['mcp', '--help'], code: 0, output: 'Usage: pnpm stand mcp' },
+    { args: ['up', '--live-home', '/x'], code: 2, output: 'only with --foreground' },
+    { args: ['demo', 'status'], code: 3, output: 'stand refused (external_secrets)' },
+  ])(
+    'flushes $args and exits $code after the event loop drains',
+    async ({ args, code, output }) => {
+      const result = await runCli(args, {
+        GITHUB_TOKEN: 'fake-token',
+        NODE_OPTIONS: `--import=${forbidForcedExit}`,
+      });
+      expect(result.code, result.stderr).toBe(code);
+      expect(code === 0 ? result.stdout : result.stderr).toContain(output);
+    },
+  );
+});
+
 describe('stand mcp help', () => {
   it.each(['--help', '-h'])(
     'prints the mcp usage and exits 0 on %s without a stand',
