@@ -134,12 +134,19 @@ const BRANCH_COMMIT_FIELDS =
   'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } }';
 // Read the head and up to seven first parents within GitHub's query depth limit. First parents
 // follow the default branch through merges without considering checks from merged side branches.
-function branchCommitFields(ancestors: number): string {
-  if (ancestors === 0) return BRANCH_COMMIT_FIELDS;
-  return `${BRANCH_COMMIT_FIELDS} parents(first: 1) { nodes { ${branchCommitFields(ancestors - 1)} } }`;
-}
-export const DEFAULT_BRANCH_FIELDS = `defaultBranchRef { name target { __typename ... on Commit { ${branchCommitFields(7)} } } }`;
-// Discovery has no aliases; the trailing double space keeps the recorded request text.
+export const DEFAULT_BRANCH_READS = [
+  'defaultBranchRef',
+  ...Array.from({ length: 7 }, (_, index) => `defaultBranchParent${String(index + 1)}`),
+];
+// Each commit has its own ref selection so a non-null parent-field error cannot erase a
+// newer commit's checks. The shared tip oid anchors these independent selections.
+export const DEFAULT_BRANCH_FIELDS = DEFAULT_BRANCH_READS.map((alias, depth) => {
+  if (depth === 0)
+    return `${alias} { name target { __typename ... on Commit { ${BRANCH_COMMIT_FIELDS} } } }`;
+  const parents = `oid ${'parents(first: 1) { nodes { '.repeat(depth)}${BRANCH_COMMIT_FIELDS}${' } }'.repeat(depth)}`;
+  return `${alias}: defaultBranchRef { target { ... on Commit { ${parents} } } }`;
+}).join(' ');
+// The trailing double space keeps the recorded request text.
 export function discoveryQuery(bootstrap = false): string {
   const states = discoveryStates(bootstrap);
   const baseline = bootstrap

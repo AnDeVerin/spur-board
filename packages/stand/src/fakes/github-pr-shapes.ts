@@ -27,8 +27,13 @@ const prAlias = (closing: boolean): string =>
   `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} }${SUITES} } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const BRANCH_COMMIT =
   'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } }';
-const PARENT_SELECTION = `${BRANCH_COMMIT} parents(first: 1) { nodes { `;
-const DEFAULT_BRANCH = `defaultBranchRef { name target { __typename ... on Commit { ${PARENT_SELECTION.repeat(7)}${BRANCH_COMMIT}${' } }'.repeat(7)} } } }`;
+const DEFAULT_BRANCH_HEAD = `defaultBranchRef { name target { __typename ... on Commit { ${BRANCH_COMMIT} } } }`;
+const DEFAULT_BRANCH_ANCESTORS = Array.from(
+  { length: 7 },
+  (_, index) =>
+    `defaultBranchParent${String(index + 1)}: defaultBranchRef { target { ... on Commit { oid ${'parents(first: 1) { nodes { '.repeat(index + 1)}${BRANCH_COMMIT}${' } }'.repeat(index + 1)} } } }`,
+).join(' ');
+const DEFAULT_BRANCH = `${DEFAULT_BRANCH_HEAD} ${DEFAULT_BRANCH_ANCESTORS}`;
 const prBatch = (states: string, baseline: string): string =>
   `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} ${DEFAULT_BRANCH} } }`;
 const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state lastEditedAt } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } edited: comments(first: 1, ${ORDER}) { nodes { id updatedAt } } } } }`;

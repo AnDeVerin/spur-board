@@ -6,7 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { checkState, contextName, latestContexts } from './checks.ts';
-import type { GraphError } from './client.ts';
+import { DEFAULT_BRANCH_READS, type GraphError } from './client.ts';
 
 const timestamp = z
   .string()
@@ -107,7 +107,6 @@ const branchContextWire = z.discriminatedUnion('__typename', [
   branchStatusWire,
 ]);
 type BranchContext = z.output<typeof branchContextWire>;
-// Parse commits one at a time. An unreadable older parent does not invalidate a newer fact.
 const branchCommitWire = z.object({
   oid: z.string(),
   statusCheckRollup: z
@@ -118,13 +117,13 @@ const branchCommitWire = z.object({
       }),
     })
     .nullable(),
-  parents: z.unknown().optional(),
 });
-const branchParentsWire = z.object({ nodes: z.array(z.unknown()).max(1) });
-const defaultBranchWire = z.object({
+const branchParentsWire = z.object({ parents: z.object({ nodes: z.tuple([z.unknown()]) }) });
+const parentRefWire = z.object({ target: z.looseObject({ oid: z.string() }) });
+const defaultBranchWire = z.looseObject({
   defaultBranchRef: z.object({
     name: z.string(),
-    target: z.looseObject({ __typename: z.literal('Commit') }),
+    target: branchCommitWire.extend({ __typename: z.literal('Commit') }),
   }),
 });
 // A commit status, or a check run of a push-triggered workflow.
@@ -134,17 +133,20 @@ function counted(node: BranchContext): boolean {
 const PASSED = new Set(['success', 'neutral', 'skipped']);
 const RUNNING = new Set(['pending', 'expected']);
 
-// A failure on a parent connection affects the next commit, even if the connection is null.
-function branchErrorDepth({ path }: GraphError): number {
-  if (path?.[2] !== 'target') return 0;
-  let depth = 0;
-  let offset = 3;
-  while (path[offset] === 'parents') {
-    depth += 1;
-    if (path[offset + 1] !== 'nodes' || path[offset + 2] !== 0) break;
-    offset += 3;
-  }
-  return depth;
+export function branchScoped(error: GraphError): boolean {
+  return (
+    error.path?.[0] === 'repository' &&
+    DEFAULT_BRANCH_READS.some((alias) => error.path?.[1] === alias)
+  );
+}
+
+function readBranchParent(reference: unknown, tip: string, depth: number): unknown {
+  const parsed = parentRefWire.safeParse(reference);
+  if (!parsed.success || parsed.data.target.oid !== tip) return undefined;
+  let commit: unknown = parsed.data.target;
+  for (let hop = 0; hop < depth; hop += 1)
+    commit = branchParentsWire.safeParse(commit).data?.parents.nodes[0];
+  return commit;
 }
 
 /**
@@ -159,20 +161,16 @@ export function defaultBranchFact(
   const parsed = defaultBranchWire.safeParse(repository);
   if (!parsed.success) return undefined;
   const { name: branch, target } = parsed.data.defaultBranchRef;
-  const unreadableDepth = errors.reduce(
-    (limit, error) => Math.min(limit, branchErrorDepth(error)),
-    Infinity,
-  );
-  let commit: unknown = target;
-  for (let depth = 0; depth < unreadableDepth && commit !== undefined; depth += 1) {
+  for (const [depth, alias] of DEFAULT_BRANCH_READS.entries()) {
+    if (errors.some((error) => error.path?.[1] === alias)) return undefined;
+    const commit = depth === 0 ? target : readBranchParent(parsed.data[alias], target.oid, depth);
     const result = branchCommitWire.safeParse(commit);
     if (!result.success) return undefined;
-    const { oid, statusCheckRollup, parents } = result.data;
+    const { oid, statusCheckRollup } = result.data;
     const contexts = statusCheckRollup?.contexts;
     const kept = contexts?.nodes.filter(counted) ?? [];
     const truncated = contexts?.pageInfo.hasNextPage ?? false;
     if (kept.length > 0 || truncated) return branchColour(branch, oid, kept, truncated);
-    commit = branchParentsWire.safeParse(parents).data?.nodes[0];
   }
   return undefined;
 }

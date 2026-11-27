@@ -35,6 +35,7 @@ import {
 } from './client.ts';
 import {
   baselineNodeWire,
+  branchScoped,
   defaultBranchFact,
   discover,
   discoveryNodeWire,
@@ -668,8 +669,6 @@ interface DiscoveryResult {
   bootstrapCursor: SourceCursor | undefined;
   defaultBranch: Batch['defaultBranch'];
 }
-// Errors under `repository.defaultBranchRef` affect branch observation alone.
-const branchScoped = (error: GraphError): boolean => error.path?.[1] === 'defaultBranchRef';
 /**
  * Lists the repository's PRs since the cursor; a transient failure leaves `ok` false. The first
  * response also gives the default-branch colour, whatever the PR listing's outcome.
