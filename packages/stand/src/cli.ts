@@ -579,7 +579,18 @@ async function spawnStand(
       // The group is already gone.
     }
   };
-  const exitWithin = (ms: number): Promise<void> => Promise.race([exit, sleep(ms)]);
+  const exitWithin = async (ms: number): Promise<void> => {
+    if (exited()) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const elapsed = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms);
+    });
+    try {
+      await Promise.race([exit, elapsed]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   killGroup('SIGTERM');
   await exitWithin(DOWN_TIMEOUT_MS);
   killGroup('SIGKILL');
