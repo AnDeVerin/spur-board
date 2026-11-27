@@ -192,12 +192,13 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
   }
   if (facts.turn !== null) return turnWait(facts.turn);
   if (holds.includes('spur_blind')) return wait('spur', 'Spur to be readable');
-  if (column !== 'done' && completes(pr, facts.work))
-    return wait(...completionWait(pr, facts.work));
-  if (holds.includes('work_not_started')) return wait(...workToStart(facts.work));
+  // A gate that fails on a fact not known yet holds the task before completion can still come.
   const [waiting] = facts.waiting;
   const fact = waiting === undefined ? undefined : WAITING[waiting.reason]?.(waiting, pr);
   if (fact !== undefined) return fact;
+  if (column !== 'done' && completes(pr, facts.work))
+    return wait(...completionWait(pr, facts.work));
+  if (holds.includes('work_not_started')) return wait(...workToStart(facts.work));
   if (column === 'done') return wait('done', 'nothing, the task is done');
   if (gate.ok) {
     const next = nextColumn(project, column);
