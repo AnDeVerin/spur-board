@@ -1,6 +1,7 @@
 # A minimal Board config: one GitHub repository, issues as tasks, columns Todo, Dev, Review and
 # Done, no Slack and no web UI. Copy it to ~/.config/spur-board/config.yaml (the default config
-# directory) and replace every example value; using another config directory: see SETUP.md.
+# directory) and replace the example repository and GitHub login. See README.md for Spur project
+# names and SETUP.md for using another config directory.
 # docs/configuration.md lists every field and default.
 projects:
   - id: example

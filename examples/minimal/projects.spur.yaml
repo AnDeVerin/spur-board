@@ -1,10 +1,10 @@
 # Spur projects for the minimal Board example: a worker per issue, a reviewer that runs the
 # Review column, and an operator session. Copy this file to spur.yaml at the root of your
-# checkout, replace the example values, and run `spur connect spur.yaml` there.
+# checkout, replace the example repository and GitHub login, and run `spur connect spur.yaml` there.
 #
 # Each project id must be unique across every spur.yaml connected to Spur, and so must its session
 # prefix (the id by default). Before you connect a second copy, rename all three projects here and
-# under spurProjects in config.yaml.
+# under spurProjects in config.yaml, and update the reviewer name in columns[].orchestrator.
 projects:
   example-worker:
     # A relative path counts from this file's folder, so `.` is the checkout this file sits in and

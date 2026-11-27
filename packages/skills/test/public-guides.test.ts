@@ -11,7 +11,6 @@ import {
   SPUR_MIN_VERSION,
 } from '../../contracts/src/index.ts';
 import { taskGetOutputSchema } from '../../contracts/src/browser.ts';
-import { statusTaskSchema } from '../../contracts/src/ops/schemas.ts';
 
 const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
 const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
@@ -136,8 +135,9 @@ describe('public guide contents', () => {
     }
     for (const [n, column, query] of [
       [6, 'todo', 'board status'],
-      [7, 'dev', 'board task example-org/example-repo#<N> --why'],
-      [8, 'review', 'board status'],
+      [7, 'dev', 'board task example-org/example-repo#<N> --why --json'],
+      [8, 'review', 'board task example-org/example-repo#<N> --why --json'],
+      [9, 'review', 'board task example-org/example-repo#<N> --why --refresh --json'],
       [10, 'done', 'board status'],
     ] as const) {
       expect(step(n)).toContain(query);
@@ -180,7 +180,7 @@ describe('public guide contents', () => {
   it('judges each step by fields returned by its Board query', () => {
     const { kind, ref } = taskGetOutputSchema.shape.links.element.shape;
     const hasPrLink = kind.options.includes('pr') && ref.safeParse('owner/repo#42').success;
-    const submission = statusTaskSchema.shape.submission.unwrap().unwrap().shape;
+    const submission = taskGetOutputSchema.shape.submission.unwrap().unwrap().shape;
     const waitsForSource = readFileSync(
       fileURLToPath(new URL('../../core/src/domain/waits-for.ts', import.meta.url)),
       'utf8',
@@ -189,7 +189,7 @@ describe('public guide contents', () => {
     const facts: [number, string[], boolean][] = [
       [7, ['`links`', '`kind: pr`', '`ref`', '`example-org/example-repo#<PR>`'], hasPrLink],
       [8, ['`submission.column`'], submission.column.options.includes('review')],
-      [9, ['`waits for: merge of'], /`merge of \$\{/.test(waitsForSource)],
+      [9, ['`merge of'], /`merge of \$\{/.test(waitsForSource)],
       [10, ['`waits for: ticket to close`'], waitsForSource.includes("'ticket to close'")],
     ];
     for (const [n, fields, exists] of facts) {
@@ -231,7 +231,7 @@ describe('public guide contents', () => {
     for (const rule of guidance) expect(merge).toMatch(rule);
     expect(merge).toContain('use the submitted turn in History for the outcome');
     expect(merge).toContain(
-      'When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.',
+      'When `why.waitsFor.text` says `merge of example-org/example-repo#<PR> (a human)`, the Review gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.',
     );
   });
 
@@ -242,8 +242,7 @@ describe('public guide contents', () => {
     const requests = [...quickstart.matchAll(/```text\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
     const invocations = requests.flatMap((text) => [...text.matchAll(/\bboard ([a-z][^.\n]*)/g)]);
     expect(invocations.length).toBeGreaterThan(0);
-    // Step 9's gate explanation needs --why; without it the request returns no gates.
-    expect(step(9)).toMatch(/\bboard task \S+ --why\b/);
+    for (const n of [7, 8, 9]) expect(step(n)).toMatch(/```text\n[^`]*Quote why\.waitsFor\.text/);
     for (const [whole, rest = ''] of invocations) {
       const words = rest.split(/\s+/);
       const command = words[0] ?? '';

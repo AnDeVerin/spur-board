@@ -10,8 +10,11 @@ without Slack or the web UI.
   issue per session, `example-reviewer` runs the Review column, and `example-operator` is the
   operator's session. Each has a short prompt step that points to the `spur-board` skill.
 
-Replace `example-org/example-repo`, `example-user` and the project names with your own values in
-both files.
+Replace `example-org/example-repo` and `example-user` with your repository and GitHub login
+wherever they appear in the example files. You can keep the three `example-*` Spur project names
+if they are available. If you rename them, update the project keys in `spur.yaml`, the names
+under `spurProjects` in `config.yaml`, and the reviewer name in `columns[].orchestrator`. Use the
+new names in the spawn commands below.
 
 The [quickstart requirements](../../docs/quickstart.md#requirements) cover Node, GitHub CLI and
 the agent CLI. Install [tmux on Ubuntu or Debian](../../docs/quickstart.md#on-ubuntu-or-debian)
@@ -42,7 +45,7 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
    [SETUP.md](../../SETUP.md#5-install-skills-and-verify) explains what it installs.
 
 3. Clone the repository, copy `projects.spur.yaml` to `spur.yaml` at the root of the checkout,
-   replace the example values, and set each project's `defaultBranch` to the repository's default
+   make the substitutions above, and set each project's `defaultBranch` to the repository's default
    branch if it is not `main`. Add `/spur.yaml` to `.git/info/exclude` in the clone to keep it out
    of commits, then connect it from the checkout:
 
@@ -57,7 +60,7 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
    `.agents/skills/spur-board` in the checkout to the installed skill, and uncomment `symlinks` in
    each project ([TROUBLESHOOTING.md](../../TROUBLESHOOTING.md#skillscodex_visibility)). Spur
    refuses a project id or `sessionPrefix` that another connected spur.yaml already uses: for a
-   second copy of this example, rename all three projects in both files.
+   second copy of this example, follow the rename instructions above.
 
 4. Sign GitHub in for the agents, as the user that runs the Spur sessions and as the account set
    in `operatorGithubLogin`. The agents push branches and open PRs under it; they never merge.
@@ -78,7 +81,7 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
    git config --global user.email "you@example.com"
    ```
 
-5. Copy `config.yaml` to `~/.config/spur-board/config.yaml` and replace the example values. Put
+5. Copy `config.yaml` to `~/.config/spur-board/config.yaml` with the substitutions above. Put
    `GITHUB_TOKEN` in `secrets.env` in the same directory, with mode `0600`, as
    [SETUP.md](../../SETUP.md#configuration-and-secrets) says. Using another config directory: see
    [SETUP.md](../../SETUP.md#configuration-and-secrets). Then check the config:
@@ -112,11 +115,12 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
 
    Its `path.spur` and `orchestrator.sessions` checks need live Spur sessions, so they warn when
    run before this step. `Waiting` in `spur list` is normal between turns. `Completed` can describe a
-   finished prompt or an ended session. The `orchestrator.sessions` check shows which reviewer
-   session the Board last saw as live. If it reports `no live session` just after launch, wait
-   for the next successful Spur poll and rerun `board doctor`. If the reviewer is still running,
-   check the session setup. Start a replacement only after confirming the previous reviewer
-   session has ended.
+   finished prompt or an ended session. Look for `tmux live` in `spur list` to confirm the session
+   is still running. The `orchestrator.sessions` check shows which reviewer session the Board last
+   saw as live. `PASS` confirms the Board sees a live reviewer for Review. If the check reports
+   `no live session` just after launch, wait for the next successful Spur poll and rerun
+   `board doctor`. If the reviewer is still running, check the session setup. Start a replacement
+   only after confirming the previous reviewer session has ended.
 
 8. Start one worker session per issue, with the issue URL in the prompt:
 
@@ -129,10 +133,11 @@ so Spur can create worktrees. The [quickstart](../../docs/quickstart.md) shows h
 The issue is a task in Todo. When the worker links its session, the Board moves the task to Dev
 and gives the worker a Dev turn. The worker pushes, opens a PR that closes the issue and submits
 its head. With green checks the task goes to Review. The reviewer posts its verdict, reviewed
-head and notes on the PR, then submits the head or returns the task to Dev with the changes it
-needs. Follow [Quickstart step 9](../../docs/quickstart.md#9-merge-the-pull-request) to check the
-verdict and Board Review gate on the current head before you merge. The task then moves to Done,
-and the worker wraps up and submits its Done turn.
+head, turn ID and notes in a PR conversation comment, then submits the head or returns the task
+to Dev with the changes it needs. Follow
+[Quickstart step 9](../../docs/quickstart.md#9-merge-the-pull-request) to check the verdict and Board
+Review gate on the current head before you merge. The task then moves to Done, and the worker
+wraps up and submits its Done turn.
 
 If the repository runs no CI checks, uncomment `reposWithoutCi` in `config.yaml`: otherwise a PR
 with no checks waits in Dev.
