@@ -244,14 +244,16 @@ function sourceText(
   const reason = state?.blind_reason ?? null;
   const service = serviceOf(source);
   if (item.cleared_at !== null || reason === null || service === undefined) return stored;
-  const problem = PROBLEMS[reason];
+  const spurTimedOut =
+    reason === 'stale' && source === 'spur' && state?.failure_code === SPUR_REQUEST_TIMEOUT;
+  const problem = spurTimedOut ? 'answered slower than the timeout' : PROBLEMS[reason];
   const thing =
     reason === 'auth'
       ? `the ${service} token`
       : reason === 'config'
         ? `the ${source} settings in the board config`
         : reason === 'stale' && source === 'spur'
-          ? state?.failure_code === SPUR_REQUEST_TIMEOUT
+          ? spurTimedOut
             ? 'tracked session count and host load'
             : 'the Spur daemon'
           : undefined;

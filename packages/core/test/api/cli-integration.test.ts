@@ -127,13 +127,14 @@ describe('CLI against the real HTTP API', () => {
       expect(await status()).not.toHaveProperty('failure');
       expect(await call(['status'], true)).toContain(message);
       const action = 'check tracked session count and host load';
+      const heading = 'Spur answered slower than the timeout';
       const item = (await inbox()).items[0];
       if (item === undefined) throw new Error('Expected a Spur source item.');
-      expect(item).toMatchObject({ text: `Spur unreachable (${message}): ${action}`, action });
+      expect(item).toMatchObject({ text: `${heading} (${message}): ${action}`, action });
 
       const updated = await timeout(15_259);
       expect((await inbox()).items).toEqual([
-        { ...item, text: `Spur unreachable (${updated}): ${action}` },
+        { ...item, text: `${heading} (${updated}): ${action}` },
       ]);
       await call(['item', 'close', item.id, '--json']);
       await timeout(5_320, 'sessions/<id>', 5_000);
