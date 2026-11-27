@@ -11,7 +11,7 @@ Example: {}",
   },
   {
     "description": "Show a task; refresh reads GitHub PRs.
-Use when: Inspect a task; detail adds closed turns.
+Use when: Inspect a task; why starts with what it waits for, detail adds closed turns.
 When not to use: Use task_history for past events.
 Example: {"task":"PROJ-123"}",
     "name": "task_get",

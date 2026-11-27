@@ -115,6 +115,7 @@ export function shellTask() {
     blocks: [],
     comments: [],
     why: {
+      waitsFor: { kind: 'gate', text: 'Dev exit: no_pr', actor: null },
       column: 'dev',
       dispatcher: 'on',
       holds: [],

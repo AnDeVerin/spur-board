@@ -6,7 +6,9 @@ import {
   EXIT_CODES,
   OPERATIONS,
   SECRET_ENV_KEYS,
+  WAITS_FOR_KINDS,
   configJsonSchema,
+  type WaitsForKind,
 } from '../packages/contracts/src/index.ts';
 import { createProgram, exampleCommand } from '../packages/cli/src/cli.ts';
 
@@ -99,6 +101,30 @@ function setupExample(path: string, command: CliCommand): string {
   return `board ${path}${required ? ` ${required}` : ''}`;
 }
 
+/** What each `why.waitsFor.kind` means, with an example text; one row per kind in cli.md. */
+const WAITS_FOR_ROWS: Record<WaitsForKind, string> = {
+  turn: 'An open turn: `Review turn T4 (orchestrator:review)`; `actor` is its addressee, or `operator` once the operator took it over. A waiting holder adds `, waiting until <time> for <reason>`.',
+  merge:
+    'A human merges the PR, `merge of acme/web#42 (a human)`; with a done ticket and no live worker, `merge of acme/web#42 or close it unmerged (a human)`, or another open linked PR to merge or close.',
+  approval:
+    'A human approval on GitHub: an external review, required reviewers, the review rule or a new review after requested changes.',
+  ticket:
+    'The ticket closes: `ticket to close` after a merge, or `ticket to close, with no open PR and no live worker`.',
+  checks: 'CI on the head: `CI on <sha8>` or `green checks on <sha8>`.',
+  github: 'GitHub to be readable, or to compute mergeability, the merge state or the review rule.',
+  spur: 'Spur to be readable.',
+  board:
+    'The board: the first poll of the PR, a submit confirmation, the full comment history, fresh polls of Spur and every GitHub repository before a done ticket completes the task, or the next dispatcher pass.',
+  answer:
+    'An answer to the blocks of an open cycle-limit or course-check item: `answer to B4 (curator)`.',
+  work: 'Work to start in the To Do group, `work to start: an open PR or a live worker` (only an open PR after a reopen), or a worker session to end before a done ticket completes the task.',
+  gate: "The column's exit conditions: `Review exit: no_review_on_head`.",
+  done: 'Nothing: the task is done.',
+  archived:
+    'Nothing while the task is archived: the dispatcher skips it; unarchive it to resume. No gate carries a `waitsFor` text.',
+  config: 'The project is gone from `config.yaml`: `the project in config.yaml (operator)`.',
+};
+
 export function renderCliDocs(): string {
   const lines = [
     '# CLI reference',
@@ -127,6 +153,12 @@ export function renderCliDocs(): string {
     "Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither `BOARD_TOKEN` nor `.spur-board/token` is read. A session whose Spur project is in no `projects[].spurProjects` or top-level `spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
     '',
     '## Why a task waits',
+    '',
+    '`board task <task> --why` starts with `why.waitsFor`: what the task waits for and who acts next. `waitsFor` follows the order of the dispatcher: a blind GitHub, a pending submit or an unconfirmed ticket first, then completion that moves the task now, then the open turn, then what completion of a done ticket still needs. The Done gate never promises a pass that cannot act. On a terminal its first line is `waits for: <text>`. `text` ends with the actor in parentheses when one acts next, `actor` is that role, `human` for a person on GitHub, or null when the board, GitHub or Spur settles it. An enabled Done gate of a task not in Done, and the To Do group gate of the column a task sits in before work starts, carry a `waitsFor` text too. On a terminal `--why` leaves out the gates of disabled columns; `--all` lists them. `--json` and output that is not a terminal always list every column.',
+    '',
+    '| `waitsFor.kind` | Meaning |',
+    '| --- | --- |',
+    ...WAITS_FOR_KINDS.map((kind) => `| \`${kind}\` | ${WAITS_FOR_ROWS[kind]} |`),
     '',
     "`board task <task> --why --json` lists in `waiting` each fact the task waits for, with its gate reason, the PR head in `head` and a one-line `text`. The texts depend on the project's `checksGate`:",
     '',

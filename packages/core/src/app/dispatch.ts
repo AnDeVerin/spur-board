@@ -1042,6 +1042,8 @@ export async function readInput(
   ticketUnconfirmed: boolean;
   /** The pending turn submit of the current visit (`on` mode); absent when none waits. */
   pending: PendingSubmit | undefined;
+  /** The pull request the gates judge; null when the task has none for them. */
+  prRef: { repo: string; number: number; state: PrFacts['state'] } | null;
 } | null> {
   const judged = await judgedPr(trx, task.id, project);
   if (judged === null) return null;
@@ -1229,6 +1231,7 @@ export async function readInput(
     mergedPr,
     ticketUnconfirmed,
     pending,
+    prRef: pr === null ? null : { repo: pr.repo, number: pr.number, state: pr.state },
   };
 }
 

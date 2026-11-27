@@ -1,5 +1,5 @@
 {
-  "version": "73df729f4e5be10d68718850398f1b8c13df3e457395d4b3059447c72c5fbb0b",
+  "version": "c5968dab449affb027c7dd68368b2f680e7d1a600fce154c0070999571ab19c7",
   "grants": [
     "operator",
     "project-agent",
@@ -4250,11 +4250,26 @@
         "stopping",
         "github_unavailable"
       ],
-      "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
+      "cli": {
+        "command": "task",
+        "args": ["task"],
+        "modes": null,
+        "key": null,
+        "view": {
+          "when": "why",
+          "lead": { "label": "waits for", "path": ["why", "waitsFor", "text"] },
+          "hide": {
+            "path": ["why", "gates"],
+            "field": "enabled",
+            "flag": "--all",
+            "description": "With --why on a terminal, also list the gates of disabled columns; JSON always lists every column."
+          }
+        }
+      },
       "mcp": {
         "name": "task_get",
         "key": null,
-        "whenToUse": "Inspect a task; detail adds closed turns.",
+        "whenToUse": "Inspect a task; why starts with what it waits for, detail adds closed turns.",
         "whenNotToUse": "Use task_history for past events.",
         "destructive": false
       },
@@ -4374,6 +4389,11 @@
             "blocks": [],
             "comments": [],
             "why": {
+              "waitsFor": {
+                "kind": "turn",
+                "text": "Review turn T4 (orchestrator:review)",
+                "actor": "orchestrator:review"
+              },
               "column": "review",
               "dispatcher": "on",
               "holds": [],
@@ -4477,7 +4497,8 @@
                   "enabled": true,
                   "ok": true,
                   "blockedIn": "review",
-                  "conditions": []
+                  "conditions": [],
+                  "waitsFor": "merge of example/web#9, then the ticket to close"
                 }
               ],
               "checksWaivedBy": null,
@@ -4562,7 +4583,7 @@
             "type": "boolean"
           },
           "why": {
-            "description": "Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.",
+            "description": "Explain why the task is in its column: what it waits for, gates, holds, the open turn and the last moves; absent means no explanation.",
             "type": "boolean"
           }
         },
@@ -5753,6 +5774,63 @@
             "description": "Present only with why.",
             "type": "object",
             "properties": {
+              "waitsFor": {
+                "description": "What the task waits for and who acts next; absent only from an older daemon.",
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "turn",
+                      "merge",
+                      "approval",
+                      "ticket",
+                      "checks",
+                      "github",
+                      "spur",
+                      "board",
+                      "answer",
+                      "work",
+                      "gate",
+                      "done",
+                      "archived",
+                      "config"
+                    ],
+                    "description": "What the task waits for, e.g. turn or merge."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "The wait in one line; ends with (<actor>) when one acts next."
+                  },
+                  "actor": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "operator",
+                          "curator",
+                          "orchestrator:todo",
+                          "orchestrator:triage",
+                          "orchestrator:ready-for-dev",
+                          "orchestrator:dev",
+                          "orchestrator:review",
+                          "orchestrator:product-review",
+                          "orchestrator:external-review",
+                          "orchestrator:qa",
+                          "orchestrator:ready-to-merge",
+                          "orchestrator:done",
+                          "worker",
+                          "human"
+                        ]
+                      },
+                      { "type": "null" }
+                    ],
+                    "description": "Who acts next: a role, human on GitHub, or null for the board, GitHub or Spur."
+                  }
+                },
+                "required": ["kind", "text", "actor"],
+                "additionalProperties": false
+              },
               "column": {
                 "type": "string",
                 "enum": [
@@ -5963,13 +6041,17 @@
                         "description": "One exit condition of a column and its state."
                       },
                       "description": "The column's exit conditions, empty for a column without any."
+                    },
+                    "waitsFor": {
+                      "description": "What an enabled Done gate, or the To Do group gate the task sits in, waits for; absent otherwise.",
+                      "type": "string"
                     }
                   },
                   "required": ["column", "enabled", "ok", "blockedIn", "conditions"],
                   "additionalProperties": false,
                   "description": "The gate of one column."
                 },
-                "description": "The gate of every column, To Do to Done; empty when the pull request facts are missing."
+                "description": "The gate of every column, To Do to Done; empty when the pull request facts are missing. A terminal leaves out disabled columns unless --all; JSON lists every column."
               },
               "checksWaivedBy": {
                 "anyOf": [{ "type": "string", "const": "reposWithoutCi" }, { "type": "null" }],

@@ -380,7 +380,7 @@ export const taskGetInputSchema = z.strictObject({
     .boolean()
     .optional()
     .describe(
-      'Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.',
+      'Explain why the task is in its column: what it waits for, gates, holds, the open turn and the last moves; absent means no explanation.',
     ),
 });
 export const taskGetOutputSchema = z.strictObject({

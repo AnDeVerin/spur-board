@@ -251,6 +251,7 @@ export const taskGet = (extra: Record<string, unknown> = {}) => ({
   blocks: [],
   comments: [],
   why: {
+    waitsFor: { kind: 'turn', text: 'Dev turn T4 (worker)', actor: 'worker' },
     column: 'dev',
     dispatcher: 'on',
     holds: [],

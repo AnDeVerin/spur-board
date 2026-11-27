@@ -219,19 +219,33 @@ function isMirrored(column: ColumnId): column is 'todo' | 'ready-for-dev' {
   return column === 'todo' || column === 'ready-for-dev';
 }
 
-function ticketFinished(input: DispatchInput): boolean {
+/** What completion reads besides the PR; `board task --why` reads the same facts. */
+export type CompletionFacts = Pick<
+  DispatchInput,
+  | 'ticketDone'
+  | 'hasOpenLinkedPr'
+  | 'liveWorker'
+  | 'allGithubReposReady'
+  | 'spurReady'
+  | 'spurBlind'
+>;
+
+function ticketFinished(input: CompletionFacts): boolean {
   return input.ticketDone && !input.hasOpenLinkedPr && !input.liveWorker;
 }
 
-function absenceReady(input: DispatchInput): boolean {
+function absenceReady(input: CompletionFacts): boolean {
   return ticketFinished(input) && input.allGithubReposReady && input.spurReady && !input.spurBlind;
 }
 
 /** Completion is separate from gate progression and can bypass every ordinary gate. */
-const COMPLETION_RULE = {
+export const COMPLETION_RULE = {
   to: 'done' as const,
   text: 'From any column other than Done, completion bypasses normal gates: an eligible linked merged PR with a done ticket, or a closed ticket with no open linked PR and no live worker after every configured repository and Spur have fresh, complete, non-blind observations since the task changed. These are alternative completion routes, not additional gate requirements. Neither route moves while GitHub is blind (including no fresh complete poll since startup) or a submit is pending.',
-  reason(pr: TaskGateFacts['pr'], input: DispatchInput): 'merged' | 'ticket_done_no_pr' | null {
+  reason(
+    pr: Pick<NonNullable<TaskGateFacts['pr']>, 'state'> | null,
+    input: CompletionFacts,
+  ): 'merged' | 'ticket_done_no_pr' | null {
     if (pr?.state === 'merged') return 'merged';
     return absenceReady(input) ? 'ticket_done_no_pr' : null;
   },

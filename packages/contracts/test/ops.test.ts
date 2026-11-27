@@ -634,6 +634,66 @@ describe('catalog', () => {
     }
   });
 
+  it('binds a CLI view to a boolean input field and a free flag', () => {
+    const flagOf = (field: string) =>
+      `--${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+    for (const { op, input } of schemas) {
+      const view = op.cli.view;
+      if (view === undefined) continue;
+      const branches = inputBranches(input);
+      for (const branch of branches) {
+        const properties = branch['properties'] as Record<string, JsonObject> | undefined;
+        expect(properties?.[view.when]?.['type'], `${op.id} ${view.when}`).toBe('boolean');
+      }
+      const taken = [
+        ...branches.flatMap((branch) => propertyNames(branch).map(flagOf)),
+        ...(op.cli.modes ?? []).map((mode) => mode.flag),
+        '--key',
+        '--json',
+      ];
+      expect(taken, op.id).not.toContain(view.hide.flag);
+    }
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    expect(task?.cli.view).toEqual({
+      when: 'why',
+      lead: { label: 'waits for', path: ['why', 'waitsFor', 'text'] },
+      hide: {
+        path: ['why', 'gates'],
+        field: 'enabled',
+        flag: '--all',
+        description:
+          'With --why on a terminal, also list the gates of disabled columns; JSON always lists every column.',
+      },
+    });
+    const viewed = (view: NonNullable<NonNullable<typeof task>['cli']['view']>) =>
+      defineOperation({
+        id: 'test.view',
+        kind: 'query',
+        description: 'Throwaway.',
+        input: z.strictObject({
+          name: z.string().describe('Name.'),
+          why: z.boolean().optional().describe('Why.'),
+        }),
+        output: z.strictObject({}),
+        grants: 'any',
+        errors: [],
+        cli: { command: 'test', args: [], view },
+        mcp: { whenToUse: 'Test.', whenNotToUse: 'Use another_test instead.' },
+        slack: null,
+        examples: [{ summary: 'x', input: { name: 'x' }, output: {} }],
+      });
+    const view = {
+      when: 'why',
+      lead: { label: 'x', path: ['x'] },
+      hide: { path: ['y'], field: 'enabled', flag: '--all', description: 'All.' },
+    } as const;
+    expect(viewed(view).cli.view).toEqual(view);
+    expect(() => viewed({ ...view, when: 'name' })).toThrow(/boolean input field name/);
+    expect(() => viewed({ ...view, when: 'missing' })).toThrow(/boolean input field missing/);
+    for (const flag of ['--name', '--why', '--key', '--json'] as const)
+      expect(() => viewed({ ...view, hide: { ...view.hide, flag } })).toThrow(/already taken/);
+  });
+
   it('binds unblock as --done [ref] | --reason <reason> | --withdraw <answer>', () => {
     const unblock = OPERATIONS.find((op) => op.id === 'block.unblock');
     expect(unblock?.cli).toEqual({
@@ -1018,9 +1078,11 @@ describe('snapshot', () => {
     // submit_basis_invalid hint and the task.submit guidance say to omit basis and from there.
     // #903 rewords the status.get services[].lastGoodAt description for a gateway. #911 rewords
     // the identity_missing hint: a Spur session or spur send first, the Slack token route only
-    // with Slack.
+    // with Slack. #910 adds task.get why.waitsFor (optional for older daemons, its kind naming
+    // archived), the optional gates[].waitsFor and the cli.view binding, and rewords the task.get
+    // guidance, why and gates descriptions.
     expect(await catalogVersion(baseline)).toBe(
-      'f5234b705ff357d036c12a0ea9afbf7eb82b74b209f98f047ccfc6a1b8f1283a',
+      '9a373dee285fd031da7720089c29fd8172d9f9f333165d9a0501825b189c2e95',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

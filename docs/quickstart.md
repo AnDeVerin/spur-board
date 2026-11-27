@@ -267,8 +267,8 @@ up: [Doorbells not arriving](../TROUBLESHOOTING.md#doorbells-not-arriving).
 
 ### 9. Merge the pull request
 
-The reviewer posts its verdict, reviewed head, turn ID and notes on the pull request before
-submitting or returning the Board turn. The comment looks like this:
+The agents never merge: you do. The reviewer posts its verdict, reviewed head, turn ID and notes
+on the pull request before submitting or returning the Board turn. The comment looks like this:
 
 ```text
 Board Review — Verdict: Ready | Head: <reviewed SHA> | Turn: <Review turn ID> | Notes: Checked the acceptance criteria and test results.
@@ -281,12 +281,12 @@ pull request description can lead to another Review turn on the same commit:
 gh pr view <PR> --repo example-org/example-repo --web
 ```
 
-The task stays in `review` after a submit. Ask `example-operator` to check the Review gate and
+The task stays in `review` after a submit. Ask `example-operator` what the task waits for, and
 find the submitted turn in History. If you have a comment, use its turn ID to match the notes
 to that submission:
 
 ```text
-Run board task example-org/example-repo#<N> --why --refresh and tell me whether the review_on_head gate is met on the refreshed head.
+Run board task example-org/example-repo#<N> --why --refresh and tell me what the task waits for on the refreshed head.
 Run board task history example-org/example-repo#<N> and tell me which Review turn submitted that head and what full SHA it submitted.
 ```
 
@@ -298,9 +298,9 @@ GitHub:
 gh pr view <PR> --repo example-org/example-repo --json headRefOid --jq '.headRefOid'
 ```
 
-When the Board reports the `review_on_head` gate met on the current head and the submitted SHA
-matches GitHub, press the merge button. If the refresh fails or the SHAs differ, recheck the
-gate and the head before merging.
+When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review
+gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.
+If the refresh fails or the SHAs differ, recheck the gate and the head before merging.
 [Gates and placement](how-board-works-columns.md#gates-and-placement) explains the gates.
 
 **Success looks like:** the merge closes the issue:
@@ -331,8 +331,8 @@ that turn with `board submit` at the head the turn names; an ack alone leaves it
 task stays in `done` with no open turn, and the history lists the wrap-up turn's `turn_closed`
 with outcome `submitted`.
 
-**If it fails:** a task that stays in Review after the merge waits for the closed issue: check
-that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
+**If it fails:** a task that stays in Review after the merge reads `waits for: ticket to close`:
+check that step 9 shows `CLOSED`, then ask again after the next issue poll, about two minutes.
 
 ## Add more columns
 

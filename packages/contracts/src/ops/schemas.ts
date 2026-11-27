@@ -11,6 +11,7 @@ import {
   MEMBERSHIPS,
   TASK_HOLDS,
   VIAS,
+  WAITS_FOR_KINDS,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -175,6 +176,19 @@ const gateConditionSchema = z
 /** Why a task is where it is, from the dispatcher's point of view. */
 export const taskWhySchema = z
   .strictObject({
+    waitsFor: z
+      .strictObject({
+        kind: z.enum(WAITS_FOR_KINDS).describe('What the task waits for, e.g. turn or merge.'),
+        text: z.string().describe('The wait in one line; ends with (<actor>) when one acts next.'),
+        actor: z
+          .enum([...ADDRESSEE_ROLES, 'human'])
+          .nullable()
+          .describe(
+            'Who acts next: a role, human on GitHub, or null for the board, GitHub or Spur.',
+          ),
+      })
+      .optional()
+      .describe('What the task waits for and who acts next; absent only from an older daemon.'),
     column: z
       .enum(COLUMN_IDS)
       .describe('Column the dispatcher works from: the shadow column in shadow mode.'),
@@ -233,11 +247,17 @@ export const taskWhySchema = z
             conditions: z
               .array(gateConditionSchema)
               .describe("The column's exit conditions, empty for a column without any."),
+            waitsFor: z
+              .string()
+              .optional()
+              .describe(
+                'What an enabled Done gate, or the To Do group gate the task sits in, waits for; absent otherwise.',
+              ),
           })
           .describe('The gate of one column.'),
       )
       .describe(
-        'The gate of every column, To Do to Done; empty when the pull request facts are missing.',
+        'The gate of every column, To Do to Done; empty when the pull request facts are missing. A terminal leaves out disabled columns unless --all; JSON lists every column.',
       ),
     checksWaivedBy: z
       .literal('reposWithoutCi')

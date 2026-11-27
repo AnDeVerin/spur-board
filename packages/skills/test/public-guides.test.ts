@@ -179,14 +179,15 @@ describe('public guide contents', () => {
 
   it('judges each step by real Board status fields', () => {
     const task = statusTaskSchema.shape;
-    const gates = readFileSync(
-      fileURLToPath(new URL('../../core/src/domain/gates.ts', import.meta.url)),
+    const waitsForSource = readFileSync(
+      fileURLToPath(new URL('../../core/src/domain/waits-for.ts', import.meta.url)),
       'utf8',
     );
     // Step, the Board fact a reader checks there, and whether it exists in the code.
     const facts: [number, string, boolean][] = [
       [7, '`links.prs`', 'prs' in task.links.shape],
-      [9, '`review_on_head` gate met on the current head', /^\s*review_on_head: \{/m.test(gates)],
+      [9, '`waits for: merge of', /`merge of \$\{/.test(waitsForSource)],
+      [10, '`waits for: ticket to close`', waitsForSource.includes("'ticket to close'")],
     ];
     for (const [n, fact, exists] of facts) {
       expect(exists, fact).toBe(true);
@@ -214,7 +215,7 @@ describe('public guide contents', () => {
     for (const rule of guidance) expect(merge).toMatch(rule);
     expect(merge).toContain('use the submitted turn in History for the outcome');
     expect(merge).toContain(
-      'When the Board reports the `review_on_head` gate met on the current head and the submitted SHA matches GitHub, press the merge button.',
+      'When the Board reports `waits for: merge of example-org/example-repo#<PR> (a human)`, the Review gate is met on the current head. If the submitted SHA also matches GitHub, press the merge button.',
     );
   });
 

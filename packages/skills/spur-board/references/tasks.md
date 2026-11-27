@@ -16,8 +16,8 @@ Other errors: `not_found`.
 
 Purpose: Show a task; refresh reads GitHub PRs.
 Arguments: `<task>`.
-Flags: `--refresh`, `--detail`, `--why`, `--json`.
-Use when: Inspect a task; detail adds closed turns.
+Flags: `--refresh`, `--detail`, `--why`, `--all`, `--json`.
+Use when: Inspect a task; why starts with what it waits for, detail adds closed turns.
 Avoid when: Use `board task history <task>` for past events.
 Example: `board task PROJ-123` — Show one task.
 Other errors: `wrong_id_kind`, `not_found`, `github_unavailable`.
