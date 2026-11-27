@@ -226,25 +226,25 @@ export function createTaskQueries(deps: {
     ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
     const held = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
     const pending = read.pending?.state === 'pending' ? read.pending : undefined;
-    const pr = read.prRef;
+    const ladder = {
+      ...shared,
+      project: read.input.project,
+      archived,
+      gate,
+      holds,
+      heldBlocks: held,
+      pendingSha: pending?.sha,
+      waiting,
+      pr: read.prRef,
+      work: read.input,
+      turn: shared.turn && {
+        ...shared.turn,
+        byOperator:
+          shared.turn.taken !== null && isOperator(shared.turn.taken.by, config, task.project),
+      },
+    };
     return {
-      waitsFor: waitsFor({
-        ...shared,
-        project: read.input.project,
-        archived,
-        gate,
-        holds,
-        heldBlocks: held,
-        pendingSha: pending?.sha,
-        waiting,
-        pr,
-        work: read.input,
-        turn: shared.turn && {
-          ...shared.turn,
-          byOperator:
-            shared.turn.taken !== null && isOperator(shared.turn.taken.by, config, task.project),
-        },
-      }),
+      waitsFor: waitsFor(ladder),
       ...shared,
       dispatcher: mode,
       holds,
@@ -259,7 +259,7 @@ export function createTaskQueries(deps: {
             },
           }),
       gates: gates.map((entry) => {
-        const text = gateWaitsFor(entry, { column, holds, pr, archived, work: read.input });
+        const text = gateWaitsFor(entry, ladder);
         return text === undefined ? entry : { ...entry, waitsFor: text };
       }),
       checksWaivedBy,

@@ -148,6 +148,21 @@ const WAITING: Partial<Record<GateReason, (entry: Waiting, pr: PrRef | null) => 
     wait('approval', `a new review of the requested changes on ${refOf(pr)}`, 'human'),
 };
 
+type Read = Extract<WaitsForFacts, { column: ColumnId }>;
+
+/**
+ * What stops the dispatcher before it judges the task, in its own order: `dispatch()` returns at
+ * once while GitHub is blind or a submit is pending, and the pass skips a task whose ticket is not
+ * confirmed after a merge (`app/dispatch.ts`).
+ */
+function stopped(facts: Read): Wait | undefined {
+  if (facts.work.githubBlind) return ['github', 'GitHub to be readable', null];
+  if (facts.holds.includes('submit_pending'))
+    return ['board', `confirmation of submit ${(facts.pendingSha ?? '').slice(0, 7)}`, null];
+  if (facts.holds.includes('ticket_unconfirmed')) return ['ticket', 'ticket to close', null];
+  return undefined;
+}
+
 /** What the task waits for: the first rung of the ladder that matches. */
 export function waitsFor(facts: WaitsForFacts): WaitsFor {
   if (facts.project === null) return wait('config', 'the project in config.yaml', 'operator');
@@ -159,14 +174,12 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
     );
   if (facts.gate === null) return wait('board', 'the first poll of the linked PR');
   const { holds, gate, column, project, pr } = facts;
-  // Only a blind GitHub and a pending submit stop completion (dispatch() returns before it), and an
-  // unconfirmed ticket keeps the pass off the task. Completion runs before any gate or turn.
-  if (facts.work.githubBlind) return wait('github', 'GitHub to be readable');
-  if (holds.includes('submit_pending'))
-    return wait('board', `confirmation of submit ${(facts.pendingSha ?? '').slice(0, 7)}`);
-  if (holds.includes('ticket_unconfirmed')) return wait('ticket', 'ticket to close');
-  if (column !== 'done' && completes(pr, facts.work))
-    return wait(...completionWait(pr, facts.work));
+  const stop = stopped(facts);
+  if (stop !== undefined) return wait(...stop);
+  // Completion that fires moves the task before any turn or gate counts (dispatch() checks it
+  // first in its loop); completion that would not fire leaves the turn as it is.
+  if (column !== 'done' && COMPLETION_RULE.reason(pr, facts.work) !== null)
+    return wait('board', NEXT_PASS_TO_DONE);
   if (holds.includes('cycle_limit')) {
     const [first] = facts.heldBlocks;
     return first === undefined
@@ -179,6 +192,8 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
   }
   if (facts.turn !== null) return turnWait(facts.turn);
   if (holds.includes('spur_blind')) return wait('spur', 'Spur to be readable');
+  if (column !== 'done' && completes(pr, facts.work))
+    return wait(...completionWait(pr, facts.work));
   if (holds.includes('work_not_started')) return wait(...workToStart(facts.work));
   const [waiting] = facts.waiting;
   const fact = waiting === undefined ? undefined : WAITING[waiting.reason]?.(waiting, pr);
@@ -204,22 +219,17 @@ export function waitsFor(facts: WaitsForFacts): WaitsFor {
 
 /**
  * What one gate waits for when its conditions do not say it: the enabled Done gate of a task not
- * in Done, and the To Do group gate of the column a task sits in before work starts.
+ * in Done, and the To Do group gate of the column a task sits in before work starts. The Done gate
+ * names what stops the dispatcher first, so it never promises a pass that cannot act.
  */
 export function gateWaitsFor(
   gate: { column: ColumnId; enabled: boolean },
-  facts: {
-    column: ColumnId;
-    holds: readonly TaskHold[];
-    pr: PrRef | null;
-    /** The dispatcher skips an archived task: no gate waits for anything. */
-    archived: boolean;
-    work: WorkFacts;
-  },
+  facts: Read,
 ): string | undefined {
   if (facts.archived) return undefined;
   if (gate.column === 'done' && gate.enabled && facts.column !== 'done') {
-    if (facts.holds.includes('ticket_unconfirmed')) return 'ticket to close';
+    const stop = stopped(facts);
+    if (stop !== undefined) return stop[1];
     if (completes(facts.pr, facts.work)) return completionWait(facts.pr, facts.work)[1];
     return facts.pr?.state === 'open'
       ? `merge of ${refOf(facts.pr)}, then the ticket to close`
