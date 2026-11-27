@@ -1,0 +1,62 @@
+{
+  "red": {
+    "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "ci-ok",
+    "event": "push",
+    "conclusion": "FAILURE",
+    "createdAt": "2026-11-27T07:51:31Z",
+    "startedAt": "2026-11-27T07:58:02Z",
+    "completedAt": "2026-11-27T07:58:25Z",
+    "job": "1/job/1"
+  },
+  "rerun": {
+    "oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "ci-ok",
+    "event": "push",
+    "conclusion": "SUCCESS",
+    "createdAt": "2026-11-27T07:51:31Z",
+    "startedAt": "2026-11-27T08:54:23Z",
+    "completedAt": "2026-11-27T08:54:38Z",
+    "job": "1/job/2"
+  },
+  "release": {
+    "oid": "dddddddddddddddddddddddddddddddddddddddd",
+    "name": "Analyze (actions)",
+    "event": "dynamic",
+    "conclusion": "SUCCESS",
+    "createdAt": "2026-11-27T08:55:15Z",
+    "startedAt": "2026-11-27T08:55:20Z",
+    "completedAt": "2026-11-27T08:56:01Z",
+    "job": "2/job/3"
+  },
+  "nextRed": {
+    "oid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "name": "ci-ok",
+    "event": "push",
+    "conclusion": "FAILURE",
+    "createdAt": "2026-11-27T09:19:45Z",
+    "startedAt": "2026-11-27T09:24:42Z",
+    "completedAt": "2026-11-27T09:24:55Z",
+    "job": "3/job/4"
+  },
+  "green": {
+    "oid": "cccccccccccccccccccccccccccccccccccccccc",
+    "name": "ci-ok",
+    "event": "push",
+    "conclusion": "SUCCESS",
+    "createdAt": "2026-11-27T11:04:21Z",
+    "startedAt": "2026-11-27T11:10:42Z",
+    "completedAt": "2026-11-27T11:11:07Z",
+    "job": "4/job/5"
+  },
+  "finalRelease": {
+    "oid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "name": "Analyze (actions)",
+    "event": "dynamic",
+    "conclusion": "SUCCESS",
+    "createdAt": "2026-11-27T11:11:46Z",
+    "startedAt": "2026-11-27T11:11:50Z",
+    "completedAt": "2026-11-27T11:12:29Z",
+    "job": "5/job/6"
+  }
+}

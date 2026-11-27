@@ -1080,9 +1080,10 @@ describe('snapshot', () => {
     // the identity_missing hint: a Spur session or spur send first, the Slack token route only
     // with Slack. #910 adds task.get why.waitsFor (optional for older daemons, its kind naming
     // archived), the optional gates[].waitsFor and the cli.view binding, and rewords the task.get
-    // guidance, why and gates descriptions.
+    // guidance, why and gates descriptions. #926 describes the default-branch lookback and
+    // confirmation time in status.get.
     expect(await catalogVersion(baseline)).toBe(
-      '9a373dee285fd031da7720089c29fd8172d9f9f333165d9a0501825b189c2e95',
+      'f7cb14ce7b272172f43f6abee726c1b004b12466b4e96cf239a2c74ecc904ffc',
     );
   });
   const throwaway = (input: z.ZodObject, output: z.ZodType) =>

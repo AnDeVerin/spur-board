@@ -938,7 +938,13 @@ describe('each scenario', () => {
       }[];
       handled: { text: string; url?: string }[];
     }
-    type Branch = { state: string; sha: string; check: string | null; url: string | null } | null;
+    type Branch = {
+      state: string;
+      sha: string;
+      check: string | null;
+      url: string | null;
+      confirmedAt: string;
+    } | null;
     const inbox = () => op<Inbox>(current(), 'inbox.operator', {});
     const branchOf = async () =>
       (
@@ -965,6 +971,15 @@ describe('each scenario', () => {
 
     const branch = (args: object) =>
       ok(current(), '/fake', { system: 'github', verb: 'branch', args: { repo, ...args } });
+    const beforeRelease = await branchOf();
+    await branch({ state: 'unchecked' });
+    await ok(current(), '/clock', { shiftMs: 1000 });
+    await ok(current(), '/poll');
+    const afterRelease = await branchOf();
+    expect(afterRelease).toMatchObject({ state: 'red', sha: beforeRelease?.sha, url });
+    expect(afterRelease?.confirmedAt).not.toBe(beforeRelease?.confirmedAt);
+    expect((await inbox()).items).toMatchObject([{ text: red.items[0]?.text, url }]);
+
     await branch({ state: 'green' });
     await ok(current(), '/poll');
     const green = await inbox();

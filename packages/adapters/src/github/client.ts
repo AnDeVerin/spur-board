@@ -130,10 +130,15 @@ function aliases(numbers: readonly number[], fields: (number: number) => string)
 // history later polls can list; the alias keeps its name to match the recorded request text.
 const discoveryStates = (bootstrap: boolean): string =>
   bootstrap ? 'OPEN' : 'OPEN, MERGED, CLOSED';
-// The default-branch head's check runs, with the event that triggered each run's workflow, and
-// commit statuses; only the first discovery request selects them (`defaultBranchFact`).
-export const DEFAULT_BRANCH_FIELDS =
-  'defaultBranchRef { name target { __typename ... on Commit { oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } } } } }';
+const BRANCH_COMMIT_FIELDS =
+  'oid statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt detailsUrl checkSuite { createdAt workflowRun { event workflow { id } } } } ... on StatusContext { __typename context state createdAt targetUrl } } pageInfo { hasNextPage } } }';
+// Read the head and up to seven first parents within GitHub's query depth limit. First parents
+// follow the default branch through merges without considering checks from merged side branches.
+function branchCommitFields(ancestors: number): string {
+  if (ancestors === 0) return BRANCH_COMMIT_FIELDS;
+  return `${BRANCH_COMMIT_FIELDS} parents(first: 1) { nodes { ${branchCommitFields(ancestors - 1)} } }`;
+}
+export const DEFAULT_BRANCH_FIELDS = `defaultBranchRef { name target { __typename ... on Commit { ${branchCommitFields(7)} } } }`;
 // Discovery has no aliases; the trailing double space keeps the recorded request text.
 export function discoveryQuery(bootstrap = false): string {
   const states = discoveryStates(bootstrap);

@@ -31,6 +31,10 @@ const GRAPHQL_URL = 'https://api.github.com/graphql';
 const AGENT = 'stand-agent';
 const REVIEWER = 'stand-reviewer';
 const BOT = 'stand-bot';
+interface BranchCommit {
+  sha: string;
+  contexts: Wire[];
+}
 
 function page(connection: string, items: readonly Wire[], args: Args): WireObject {
   // The variable check has already made a given `after` a string.
@@ -85,8 +89,8 @@ export function createGithubPrFake(options: {
   const { now } = options;
   const repos = new Set(options.repos.map((repo) => repo.toLowerCase()));
   const prs = new Map<string, Pr>();
-  // The default-branch head of each repository by lowercase name; none until `branch` sets one.
-  const branches = new Map<string, { sha: string; contexts: Wire[] }>();
+  // Default-branch commits in head-first order, by lowercase repository name.
+  const branches = new Map<string, BranchCommit[]>();
   let heads = 0;
   // Not part of `state`: a restore keeps the requests answered so far.
   const requests = createRequestLog(now);
@@ -345,6 +349,23 @@ export function createGithubPrFake(options: {
     };
   }
 
+  function branchCommitView(commits: readonly BranchCommit[], index: number): WireObject | null {
+    const commit = commits[index];
+    if (commit === undefined) return null;
+    return {
+      __typename: 'Commit',
+      oid: commit.sha,
+      statusCheckRollup:
+        commit.contexts.length === 0
+          ? null
+          : { contexts: (args: Args) => page('contexts', commit.contexts, args) },
+      parents: () => {
+        const parent = branchCommitView(commits, index + 1);
+        return { nodes: parent === null ? [] : [parent] };
+      },
+    };
+  }
+
   function repositoryView(owner: unknown, name: unknown): WireObject {
     const repo = `${String(owner)}/${String(name)}`;
     if (!repos.has(repo.toLowerCase())) throw new FakeViolation(`Unknown repository ${repo}.`);
@@ -352,18 +373,7 @@ export function createGithubPrFake(options: {
     const branch = branches.get(repo.toLowerCase());
     return {
       defaultBranchRef:
-        branch === undefined
-          ? null
-          : {
-              name: 'main',
-              target: {
-                __typename: 'Commit',
-                oid: branch.sha,
-                statusCheckRollup: {
-                  contexts: (args: Args) => page('contexts', branch.contexts, args),
-                },
-              },
-            },
+        branch === undefined ? null : { name: 'main', target: branchCommitView(branch, 0) },
       issues: (args: Args) => projectIssuesView(repo, args, options.issueProjects),
       // Newest first, which the adapter's scan relies on to stop at its cursor.
       pullRequests: (args: Args) => {
@@ -418,9 +428,12 @@ export function createGithubPrFake(options: {
         },
       },
     });
-    const contexts = [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
+    const contexts =
+      state === 'unchecked' ? [] : [run(check, state === 'red' ? 'FAILURE' : 'SUCCESS', 'push')];
     if (scheduledFailure !== undefined) contexts.push(run(scheduledFailure, 'FAILURE', 'schedule'));
-    branches.set(repo.toLowerCase(), { sha, contexts });
+    const branch = branches.get(repo.toLowerCase()) ?? [];
+    branch.unshift({ sha, contexts });
+    branches.set(repo.toLowerCase(), branch);
     return { status: 200, body: { repo, branch: 'main', sha, state } };
   }
 

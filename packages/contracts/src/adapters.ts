@@ -145,20 +145,20 @@ function itemAnswersRef(item: BatchItem, ref: EntityRef): boolean {
   return itemIdentity(item) === refIdentity(ref);
 }
 
-const defaultBranchHead = {
+const defaultBranchCommit = {
   branch: z.string().min(1).describe('Name of the default branch.'),
-  sha: commitShaSchema.describe('Commit at the head of the default branch.'),
+  sha: commitShaSchema.describe('Newest commit with counted checks in the default-branch read.'),
 };
 
 /**
- * The colour of a repository's default-branch head. Only push-triggered workflow check runs and
+ * The colour of the newest checked commit in the default-branch read. Push workflow checks and
  * commit statuses count; scheduled and other runs, and check runs outside workflows, never do.
  */
 export const defaultBranchFactSchema = z
   .discriminatedUnion('state', [
     z.strictObject({
       state: z.literal('green').describe('Every counted check finished successfully.'),
-      ...defaultBranchHead,
+      ...defaultBranchCommit,
     }),
     z.strictObject({
       state: z
@@ -166,12 +166,12 @@ export const defaultBranchFactSchema = z
         .describe(
           'At least one counted check finished without success (failed, cancelled, timed out).',
         ),
-      ...defaultBranchHead,
+      ...defaultBranchCommit,
       check: z.string().min(1).nullable().describe('Name of the first failing check, if known.'),
       url: webUrl.nullable().describe('Web URL of the failing run, or null when unknown.'),
     }),
   ])
-  .describe('Colour of the default-branch head.');
+  .describe('Colour of the newest checked commit in the default-branch read.');
 export type DefaultBranchFact = z.output<typeof defaultBranchFactSchema>;
 
 /** What a complete GitHub Project read says about one issue; no complete read means unknown. */
@@ -235,7 +235,7 @@ export const batchSchema = z
     defaultBranch: defaultBranchFactSchema
       .optional()
       .describe(
-        'Colour of the default-branch head read by this poll; omitted when the poll did not read a settled colour.',
+        'Colour of the newest checked commit in the default-branch read. Omitted when the poll found no settled colour.',
       ),
     mirror: z
       .strictObject({

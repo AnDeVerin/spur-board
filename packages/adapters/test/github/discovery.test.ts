@@ -404,8 +404,17 @@ describe('default branch head', () => {
     expect(batch.defaultBranch).toEqual(red);
   });
 
-  it('leaves a running head out', async () => {
-    expect(await branchOf([run('build', null, 'push', { status: 'IN_PROGRESS' })])).toBeUndefined();
+  it('leaves a running or incomplete head out, even with a settled parent', async () => {
+    const parents = { nodes: [branchRef([run('build', 'SUCCESS', 'push')]).target] };
+    const running = branchRef([run('build', null, 'push', { status: 'IN_PROGRESS' })]).target;
+    for (const target of [
+      running,
+      branchRef([run('nightly', 'FAILURE', 'schedule')], true).target,
+      { ...running, statusCheckRollup: { contexts: null } },
+    ])
+      expect(
+        (await pollWith({ name: 'main', target: { ...target, parents } })).batch.defaultBranch,
+      ).toBeUndefined();
     expect(
       await branchOf([run('build', 'SUCCESS', 'push'), commitStatus('ci/ext', 'PENDING')]),
     ).toBeUndefined();
