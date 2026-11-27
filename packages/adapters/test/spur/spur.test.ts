@@ -615,6 +615,7 @@ describe('Spur adapter', () => {
       vi.setSystemTime(Date.now() + 400);
       await vi.advanceTimersByTimeAsync(1);
       await assertion;
+      await expect(poll).rejects.not.toHaveProperty('code', expect.anything());
     });
 
     it('times out a transitions page after 15 seconds while reading the body', async () => {
